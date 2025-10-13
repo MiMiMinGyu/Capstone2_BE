@@ -1,4 +1,4 @@
-import { Body, Controller, Post, Get } from '@nestjs/common';
+import { Body, Controller, Post, Get, Sse, MessageEvent } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiResponse } from '@nestjs/swagger';
 import { TelegramService } from './telegram.service';
 import {
@@ -6,6 +6,8 @@ import {
   GenerateRecommendationsDto,
   SendReplyDto,
 } from './dto';
+import { Observable } from 'rxjs';
+import { map } from 'rxjs/operators';
 
 // Swagger 태그 설정 - API 문서에서 텔레그램 관련 엔드포인트 그룹화
 @ApiTags('telegram')
@@ -61,5 +63,23 @@ export class TelegramController {
       status: 'Telegram bot is running',
       timestamp: new Date().toISOString(),
     };
+  }
+
+  // SSE 엔드포인트 - 새 메시지 실시간 알림
+  @Get('events')
+  @Sse()
+  @ApiOperation({ summary: '새 메시지 실시간 알림 (SSE)' })
+  @ApiResponse({ status: 200, description: '실시간 메시지 스트림' })
+  getMessageEvents(): Observable<MessageEvent> {
+    console.log('📡 SSE 연결 시작됨');
+    return this.tg.getMessageEventStream().pipe(
+      map((message) => {
+        console.log(`📤 SSE 메시지 전송: ${message.id} - ${message.text}`);
+        return {
+          data: JSON.stringify(message),
+          type: 'newMessage',
+        };
+      }),
+    );
   }
 }
