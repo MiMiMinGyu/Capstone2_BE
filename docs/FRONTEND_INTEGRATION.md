@@ -142,11 +142,54 @@ http://localhost:3000/api
 
 ---
 
+## 🌊 **6. SSE (Server-Sent Events) - 실시간 메시지 알림**
+
+### **GET** `/telegram/events`
+
+새 메시지가 도착하면 서버에서 자동으로 클라이언트에 푸시합니다.
+
+**SSE 연결 예시:**
+```javascript
+// SSE 연결 설정
+const eventSource = new EventSource('http://localhost:3000/telegram/events');
+
+eventSource.onmessage = (event) => {
+  const newMessage = JSON.parse(event.data);
+  console.log('새 메시지 도착:', newMessage);
+  // UI 업데이트
+};
+
+eventSource.onerror = (error) => {
+  console.error('SSE 연결 오류:', error);
+  eventSource.close();
+};
+```
+
+---
+
 ## 💡 **프론트엔드 구현 권장사항**
 
-### **1. 실시간 업데이트**
+### **1. 실시간 업데이트 (SSE 사용 - 권장)**
 ```javascript
-// 주기적으로 새 메시지 확인 (폴링)
+// SSE를 통한 실시간 메시지 수신
+const eventSource = new EventSource('http://localhost:3000/telegram/events');
+
+eventSource.onmessage = (event) => {
+  const newMessage = JSON.parse(event.data);
+  // 메시지 목록에 새 메시지 추가
+  setMessages(prev => [newMessage, ...prev]);
+};
+
+eventSource.onerror = () => {
+  console.error('SSE 연결 끊김, 재연결 시도...');
+  eventSource.close();
+  // 재연결 로직
+};
+```
+
+### **1-1. 실시간 업데이트 (폴링 - 대안)**
+```javascript
+// 주기적으로 새 메시지 확인 (SSE를 사용할 수 없는 경우)
 const checkNewMessages = async () => {
   try {
     const response = await fetch('/telegram/messages');
@@ -286,10 +329,10 @@ interface ReplyResponse {
 
 ## ⚠️ **주의사항**
 
-1. **CORS 설정**: 프론트엔드 도메인에 맞게 CORS 설정 필요
+1. **CORS 설정**: 프론트엔드 도메인에 맞게 CORS 설정 (현재 모든 origin 허용)
 2. **에러 처리**: 네트워크 오류, API 오류에 대한 적절한 에러 처리 구현
 3. **로딩 상태**: API 호출 중 로딩 상태 표시
-4. **실시간성**: 현재는 폴링 방식이므로 실시간성에 한계 있음 (추후 WebSocket 고려)
+4. **SSE 연결 관리**: 페이지 이탈 시 `eventSource.close()` 호출 필요
 5. **봇 토큰**: 실제 텔레그램 봇 토큰 설정 필요
 
 ---

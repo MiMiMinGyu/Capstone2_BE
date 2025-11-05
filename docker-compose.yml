@@ -1,0 +1,52 @@
+# PostgreSQL + pgvector 데이터베이스 컨테이너 설정
+# 챗봇 프로젝트용 Docker Compose 구성 파일
+
+version: '3.8'
+
+services:
+  # PostgreSQL + pgvector 데이터베이스 서비스
+  postgres:
+    # PostgreSQL 16 + pgvector 공식 이미지 사용
+    # ankane/pgvector는 PostgreSQL에 pgvector 확장이 미리 설치된 이미지
+    image: ankane/pgvector:v0.5.1
+
+    # 컨테이너 이름 지정
+    container_name: chatbot_db
+
+    # 환경변수 설정
+    environment:
+      # 데이터베이스명
+      POSTGRES_DB: chatbot_db
+      # 관리자 사용자명
+      POSTGRES_USER: admin
+      # 비밀번호 (.env 파일에서 로드)
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      # 한국어 로케일 설정
+      POSTGRES_INITDB_ARGS: "--encoding=UTF-8 --locale=C"
+
+    # 포트 매핑 (호스트:컨테이너)
+    # 기존 PostgreSQL과 충돌 방지를 위해 5433 포트 사용
+    ports:
+      - "5433:5432"
+
+    # 볼륨 마운트
+    volumes:
+      # 데이터 영구 저장 (컨테이너 삭제 시에도 데이터 유지)
+      - postgres_data:/var/lib/postgresql/data
+      # 초기화 SQL 스크립트 (처음 생성 시 자동 실행)
+      - ./init.sql:/docker-entrypoint-initdb.d/init.sql
+
+    # 컨테이너 재시작 정책 (수동으로 중지하지 않는 한 항상 재시작)
+    restart: unless-stopped
+
+    # 헬스체크 설정 (컨테이너 상태 모니터링)
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U admin -d chatbot_db"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+# 볼륨 정의 (데이터 영구 저장용)
+volumes:
+  postgres_data:
+    driver: local

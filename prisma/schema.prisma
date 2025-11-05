@@ -1,0 +1,248 @@
+// ===================================================================
+// Prisma 스키마 정의
+// PostgreSQL + pgvector 기반 RAG 시스템
+// ===================================================================
+
+generator client {
+  provider = "prisma-client-js"
+  previewFeatures = ["postgresqlExtensions"]
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+  extensions = [vector]
+}
+
+// ===================================================================
+// 열거형 정의
+// ===================================================================
+
+// 관계 카테고리 (10개)
+enum RelationshipCategory {
+  FAMILY_ELDER_CLOSE      // 부모/조부모/삼촌·이모 등 어른 가족
+  FAMILY_SIBLING_ELDER    // 형/오빠/언니/누나
+  FAMILY_SIBLING_YOUNGER  // 남/여 동생
+  PARTNER_INTIMATE        // 연인/배우자
+  FRIEND_CLOSE            // 친한 친구
+  ACQUAINTANCE_CASUAL     // 가벼운 지인/처음 만난 또래
+  WORK_SENIOR_FORMAL      // 상사/교수/연장자 고객 임원
+  WORK_SENIOR_FRIENDLY    // 가까운 선배·상사/멘토
+  WORK_PEER               // 동료/타팀 협업자/파트너 동급
+  WORK_JUNIOR             // 후배/인턴/팀원
+}
+
+// 존댓말 레벨
+enum PolitenessLevel {
+  FORMAL      // 격식 존댓말 (–습니다/–하십시오)
+  POLITE      // 일반 존댓말 (–요)
+  CASUAL      // 반말
+}
+
+// 말투 분위기
+enum VibeType {
+  CALM        // 차분
+  DIRECT      // 직설
+  PLAYFUL     // 장난
+  CARING      // 배려
+}
+
+// 메시지 역할
+enum MessageRole {
+  user
+  assistant
+  system
+}
+
+// ===================================================================
+// 사용자 및 파트너 관리
+// ===================================================================
+
+// 사용자 테이블 (향후 다중 사용자 지원)
+model User {
+  id               String           @id @default(uuid()) @db.Uuid
+  username         String           @unique @db.VarChar(50)
+  created_at       DateTime         @default(now()) @db.Timestamp(6)
+
+  // Relations
+  conversations    Conversation[]
+  relationships    Relationship[]
+  style_profile    StyleProfile?
+  tone_samples     ToneSample[]
+  knowledge_chunks KnowledgeChunk[]
+
+  @@map("users")
+}
+
+// 대화 상대방 테이블
+model Partner {
+  id               String         @id @default(uuid()) @db.Uuid
+  name             String         @db.VarChar(100)
+  telegram_id      String?        @unique @db.VarChar(100)  // 텔레그램 연동
+  created_at       DateTime       @default(now()) @db.Timestamp(6)
+
+  // Relations
+  conversations    Conversation[]
+  relationships    Relationship[]
+
+  @@map("partners")
+}
+
+// ===================================================================
+// 대화 관리
+// ===================================================================
+
+// 대화 세션 테이블
+model Conversation {
+  id          String    @id @default(uuid()) @db.Uuid
+  user_id     String    @db.Uuid
+  partner_id  String    @db.Uuid
+  created_at  DateTime  @default(now()) @db.Timestamp(6)
+  updated_at  DateTime  @updatedAt @db.Timestamp(6)
+
+  // Relations
+  user        User      @relation(fields: [user_id], references: [id], onDelete: Cascade)
+  partner     Partner   @relation(fields: [partner_id], references: [id], onDelete: Cascade)
+  messages    Message[]
+
+  @@unique([user_id, partner_id])
+  @@index([user_id])
+  @@index([partner_id])
+  @@map("conversations")
+}
+
+// 메시지 테이블
+model Message {
+  id                String             @id @default(uuid()) @db.Uuid
+  conversation_id   String             @db.Uuid
+  role              MessageRole
+  text              String             @db.Text
+  created_at        DateTime           @default(now()) @db.Timestamp(6)
+
+  // Relations
+  conversation      Conversation       @relation(fields: [conversation_id], references: [id], onDelete: Cascade)
+  message_embedding MessageEmbedding?
+
+  @@index([conversation_id, created_at])
+  @@map("messages")
+}
+
+// ===================================================================
+// 관계 및 스타일 관리
+// ===================================================================
+
+// 상대방별 관계 설정
+model Relationship {
+  id                String                @id @default(uuid()) @db.Uuid
+  user_id           String                @db.Uuid
+  partner_id        String                @db.Uuid
+
+  // 관계 카테고리 (10개 중 선택)
+  category          RelationshipCategory
+
+  // 말투 설정
+  politeness        PolitenessLevel       @default(POLITE)
+  vibe              VibeType              @default(CALM)
+  emoji_level       Int                   @default(0) @db.SmallInt  // 0~3
+
+  // 메타데이터
+  created_at        DateTime              @default(now()) @db.Timestamp(6)
+  updated_at        DateTime              @updatedAt @db.Timestamp(6)
+
+  // Relations
+  user              User                  @relation(fields: [user_id], references: [id], onDelete: Cascade)
+  partner           Partner               @relation(fields: [partner_id], references: [id], onDelete: Cascade)
+
+  @@unique([user_id, partner_id])
+  @@index([user_id])
+  @@index([partner_id])
+  @@map("relationships")
+}
+
+// 사용자별 전역 스타일 프로필
+model StyleProfile {
+  id                String    @id @default(uuid()) @db.Uuid
+  user_id           String    @unique @db.Uuid
+
+  // 전역 규칙 (JSONB)
+  honorific_rules   Json      @default("{}") @db.JsonB  // 존댓말 규칙
+  constraints       Json      @default("{}") @db.JsonB  // 제약사항 (max_sentences, forbid_questions 등)
+
+  updated_at        DateTime  @updatedAt @db.Timestamp(6)
+
+  // Relations
+  user              User      @relation(fields: [user_id], references: [id], onDelete: Cascade)
+
+  @@map("style_profiles")
+}
+
+// ===================================================================
+// RAG 시스템 (pgvector)
+// ===================================================================
+
+// 톤 샘플 (few-shot 예시)
+model ToneSample {
+  id                String                 @id @default(uuid()) @db.Uuid
+  user_id           String                 @db.Uuid
+
+  // 샘플 텍스트
+  text              String                 @db.Text
+
+  // 관계 태그 (필터링용)
+  category          RelationshipCategory?
+  politeness        PolitenessLevel?
+  vibe              VibeType?
+
+  // 벡터 임베딩 (OpenAI text-embedding-3-small: 1536차원)
+  embedding         Unsupported("vector(1536)")?
+
+  created_at        DateTime               @default(now()) @db.Timestamp(6)
+
+  // Relations
+  user              User                   @relation(fields: [user_id], references: [id], onDelete: Cascade)
+
+  @@index([user_id])
+  @@index([category])
+  // pgvector HNSW 인덱스는 마이그레이션에서 수동 생성 필요
+  // CREATE INDEX ON tone_samples USING hnsw (embedding vector_cosine_ops);
+  @@map("tone_samples")
+}
+
+// 지식 청크 (옵션)
+model KnowledgeChunk {
+  id          String   @id @default(uuid()) @db.Uuid
+  user_id     String   @db.Uuid
+
+  // 소스 정보
+  source      String?  @db.VarChar(255)
+  title       String?  @db.VarChar(255)
+  chunk       String   @db.Text
+
+  // 메타데이터
+  metadata    Json     @default("{}") @db.JsonB
+
+  // 벡터 임베딩
+  embedding   Unsupported("vector(1536)")?
+
+  created_at  DateTime @default(now()) @db.Timestamp(6)
+
+  // Relations
+  user        User     @relation(fields: [user_id], references: [id], onDelete: Cascade)
+
+  @@index([user_id])
+  // pgvector HNSW 인덱스는 마이그레이션에서 수동 생성 필요
+  @@map("knowledge_chunks")
+}
+
+// 메시지 임베딩 (옵션)
+model MessageEmbedding {
+  message_id  String   @id @db.Uuid
+  embedding   Unsupported("vector(1536)")
+  created_at  DateTime @default(now()) @db.Timestamp(6)
+
+  // Relations
+  message     Message  @relation(fields: [message_id], references: [id], onDelete: Cascade)
+
+  // pgvector HNSW 인덱스는 마이그레이션에서 수동 생성 필요
+  @@map("message_embeddings")
+}

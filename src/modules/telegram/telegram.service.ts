@@ -1,7 +1,8 @@
-import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
+import { Injectable, Logger, OnModuleInit, MessageEvent } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Telegraf } from 'telegraf';
 import { TelegramMessage, SavedMessage, TelegramChat } from './interfaces';
+import { Subject } from 'rxjs';
 
 @Injectable()
 export class TelegramService implements OnModuleInit {
@@ -12,14 +13,18 @@ export class TelegramService implements OnModuleInit {
   private receivedMessages: SavedMessage[] = [];
   private messageIdCounter = 1;
 
+  // SSE를 위한 Subject - 새 메시지 이벤트 스트림
+  private messageStream = new Subject<MessageEvent>();
+
   constructor(private readonly config: ConfigService) {}
 
   async onModuleInit() {
     const token = this.config.get<string>('TELEGRAM_BOT_TOKEN');
-    if (!token)
-      throw new Error(
-        'TELEGRAM_BOT_TOKEN is not defined in environment variables',
-      );
+
+    if (!token) {
+      this.logger.warn('TELEGRAM_BOT_TOKEN is not defined - Telegram bot disabled');
+      return; // 토큰이 없으면 조용히 스킵
+    }
 
     this.bot = new Telegraf(token);
 
@@ -44,8 +49,12 @@ export class TelegramService implements OnModuleInit {
       this.logger.log(`Message saved with ID: ${this.messageIdCounter - 1}`);
     });
 
-    await this.bot.launch();
-    this.logger.log('Telegram bot launched (long polling).');
+    // await 제거: 비동기로 실행하여 HTTP 서버 시작 블로킹 방지
+    this.bot.launch().then(() => {
+      this.logger.log('✅ Telegram bot launched (long polling)');
+    }).catch((error) => {
+      this.logger.error(`❌ Failed to launch Telegram bot: ${error.message}`);
+    });
 
     process.once('SIGINT', () => this.bot.stop('SIGINT'));
     process.once('SIGTERM', () => this.bot.stop('SIGTERM'));
@@ -137,11 +146,22 @@ export class TelegramService implements OnModuleInit {
 
     this.receivedMessages.unshift(savedMessage); // 최신 메시지가 맨 앞에 오도록
     this.logger.log(`Message saved: ${JSON.stringify(savedMessage)}`);
+
+    // SSE 이벤트 발송 - 프론트엔드에 실시간 알림
+    this.messageStream.next({
+      data: JSON.stringify(savedMessage),
+    });
+    this.logger.log(`SSE event emitted for message ID: ${savedMessage.id}`);
   }
 
   // 받은 메시지 목록 조회
   getReceivedMessages(): SavedMessage[] {
     return this.receivedMessages;
+  }
+
+  // SSE를 위한 메시지 스트림 Observable 반환
+  getMessageStream() {
+    return this.messageStream.asObservable();
   }
 
   // 특정 메시지 조회

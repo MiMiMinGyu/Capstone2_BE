@@ -6,6 +6,14 @@ import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
 
+  // CORS 설정 - 프론트엔드에서 API 접근 허용
+  app.enableCors({
+    origin: true, // 개발 환경: 모든 origin 허용 (프로덕션에서는 특정 도메인으로 제한)
+    credentials: true, // 쿠키, 인증 헤더 허용
+    methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Authorization'],
+  });
+
   // 전역 유효성 검증 파이프 설정 (DTO 검증용)
   app.useGlobalPipes(new ValidationPipe({ whitelist: true, transform: true }));
 
