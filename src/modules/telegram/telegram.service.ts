@@ -20,10 +20,13 @@ export class TelegramService implements OnModuleInit {
 
   onModuleInit() {
     const token = this.config.get<string>('TELEGRAM_BOT_TOKEN');
-    if (!token)
-      throw new Error(
-        'TELEGRAM_BOT_TOKEN is not defined in environment variables',
+
+    if (!token) {
+      this.logger.warn(
+        'TELEGRAM_BOT_TOKEN is not defined - Telegram bot disabled',
       );
+      return; // 토큰이 없으면 조용히 스킵
+    }
 
     this.bot = new Telegraf(token);
 
@@ -48,8 +51,15 @@ export class TelegramService implements OnModuleInit {
       this.logger.log(`Message saved with ID: ${this.messageIdCounter - 1}`);
     });
 
-    void this.bot.launch();
-    this.logger.log('Telegram bot launched (long polling).');
+    // await 제거: 비동기로 실행하여 HTTP 서버 시작 블로킹 방지
+    this.bot
+      .launch()
+      .then(() => {
+        this.logger.log('✅ Telegram bot launched (long polling)');
+      })
+      .catch((error) => {
+        this.logger.error(`❌ Failed to launch Telegram bot: ${error.message}`);
+      });
 
     process.once('SIGINT', () => this.bot.stop('SIGINT'));
     process.once('SIGTERM', () => this.bot.stop('SIGTERM'));

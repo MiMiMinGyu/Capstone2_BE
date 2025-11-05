@@ -1,98 +1,339 @@
-<p align="center">
-  <a href="http://nestjs.com/" target="blank"><img src="https://nestjs.com/img/logo-small.svg" width="120" alt="Nest Logo" /></a>
-</p>
+# LikeMe AI 챗봇 백엔드
 
-[circleci-image]: https://img.shields.io/circleci/build/github/nestjs/nest/master?token=abc123def456
-[circleci-url]: https://circleci.com/gh/nestjs/nest
+관계별 맞춤형 말투 조정 AI 챗봇 시스템
 
-  <p align="center">A progressive <a href="http://nodejs.org" target="_blank">Node.js</a> framework for building efficient and scalable server-side applications.</p>
-    <p align="center">
-<a href="https://www.npmjs.com/~nestjscore" target="_blank"><img src="https://img.shields.io/npm/v/@nestjs/core.svg" alt="NPM Version" /></a>
-<a href="https://www.npmjs.com/~nestjscore" target="_blank"><img src="https://img.shields.io/npm/l/@nestjs/core.svg" alt="Package License" /></a>
-<a href="https://www.npmjs.com/~nestjscore" target="_blank"><img src="https://img.shields.io/npm/dm/@nestjs/common.svg" alt="NPM Downloads" /></a>
-<a href="https://circleci.com/gh/nestjs/nest" target="_blank"><img src="https://img.shields.io/circleci/build/github/nestjs/nest/master" alt="CircleCI" /></a>
-<a href="https://discord.gg/G7Qnnhy" target="_blank"><img src="https://img.shields.io/badge/discord-online-brightgreen.svg" alt="Discord"/></a>
-<a href="https://opencollective.com/nest#backer" target="_blank"><img src="https://opencollective.com/nest/backers/badge.svg" alt="Backers on Open Collective" /></a>
-<a href="https://opencollective.com/nest#sponsor" target="_blank"><img src="https://opencollective.com/nest/sponsors/badge.svg" alt="Sponsors on Open Collective" /></a>
-  <a href="https://paypal.me/kamilmysliwiec" target="_blank"><img src="https://img.shields.io/badge/Donate-PayPal-ff3f59.svg" alt="Donate us"/></a>
-    <a href="https://opencollective.com/nest#sponsor"  target="_blank"><img src="https://img.shields.io/badge/Support%20us-Open%20Collective-41B883.svg" alt="Support us"></a>
-  <a href="https://twitter.com/nestframework" target="_blank"><img src="https://img.shields.io/twitter/follow/nestframework.svg?style=social&label=Follow" alt="Follow us on Twitter"></a>
-</p>
-  <!--[![Backers on Open Collective](https://opencollective.com/nest/backers/badge.svg)](https://opencollective.com/nest#backer)
-  [![Sponsors on Open Collective](https://opencollective.com/nest/sponsors/badge.svg)](https://opencollective.com/nest#sponsor)-->
+## 프로젝트 개요
 
-## Description
+상대방과의 관계에 따라 적절한 말투, 격식, 이모지를 자동으로 조정하여 자연스러운 대화를 생성하는 AI 챗봇 백엔드입니다.
 
-[Nest](https://github.com/nestjs/nest) framework TypeScript starter repository.
+### 주요 기능
+- **10개 관계 카테고리** 기반 말투 조정
+- **RAG (Retrieval-Augmented Generation)** 시스템
+- **PostgreSQL + pgvector** 기반 벡터 검색
+- **Telegram API** 연동
+- **GPT 모델** 활용
 
-## Project setup
+---
 
+## 기술 스택
+
+- **프레임워크**: NestJS (TypeScript)
+- **데이터베이스**: PostgreSQL 16 + pgvector
+- **ORM**: Prisma
+- **AI 모델**: OpenAI GPT API
+- **임베딩**: OpenAI text-embedding-3-small (1536차원)
+- **메시징**: Telegram Bot API
+- **컨테이너**: Docker Compose
+
+---
+
+## 10개 관계 카테고리
+
+| 카테고리 | 대상 | 말투 | 이모지 |
+|----------|------|------|--------|
+| FAMILY_ELDER_CLOSE | 부모/조부모 등 어른 가족 | 친근 존댓말 (–요) | 0~1 |
+| FAMILY_SIBLING_ELDER | 형/오빠/언니/누나 | 반말 중심, –요 혼용 | 1~2 |
+| FAMILY_SIBLING_YOUNGER | 남/여 동생 | 부드러운 반말 | 1~2 |
+| PARTNER_INTIMATE | 연인/배우자 | 다정한 반말 | 2~3 |
+| FRIEND_CLOSE | 친한 친구 | 반말, 구어 허용 | 1~2 |
+| ACQUAINTANCE_CASUAL | 가벼운 지인 | 캐주얼 존댓말 (–요) | 0~1 |
+| WORK_SENIOR_FORMAL | 상사/교수/임원 | 격식 존대 (–습니다) | 0 |
+| WORK_SENIOR_FRIENDLY | 가까운 선배/멘토 | 존댓말 (–요), 캐주얼 | 0~1 |
+| WORK_PEER | 동료/협업자 | 존댓말 (–요), 간결 | 0~1 |
+| WORK_JUNIOR | 후배/팀원 | 존댓말 (–요) 권장 | 0~1 |
+
+상세 내용: [DB_SCHEMA.md](./docs/DB_SCHEMA.md)
+
+---
+
+## 빠른 시작
+
+### 1. 사전 요구사항
+- Node.js 18 이상
+- Docker & Docker Compose
+- npm 또는 yarn
+
+### 2. 환경 설정
+
+`.env` 파일 생성:
 ```bash
-$ npm install
+# 데이터베이스
+DATABASE_URL="postgresql://admin:admin1234@localhost:5433/chatbot_db"
+POSTGRES_PASSWORD=admin1234
+
+# OpenAI API
+OPENAI_API_KEY=your_openai_api_key
+
+# Telegram Bot
+TELEGRAM_BOT_TOKEN=your_telegram_bot_token
 ```
 
-## Compile and run the project
+### 3. 데이터베이스 시작
 
 ```bash
-# development
-$ npm run start
+# PostgreSQL + pgvector 컨테이너 시작
+docker-compose up -d
 
-# watch mode
-$ npm run start:dev
+# 로그 확인
+docker-compose logs -f
 
-# production mode
-$ npm run start:prod
+# 컨테이너 상태 확인
+docker ps
 ```
 
-## Run tests
+### 4. 패키지 설치
 
 ```bash
-# unit tests
-$ npm run test
-
-# e2e tests
-$ npm run test:e2e
-
-# test coverage
-$ npm run test:cov
+npm install
 ```
 
-## Deployment
-
-When you're ready to deploy your NestJS application to production, there are some key steps you can take to ensure it runs as efficiently as possible. Check out the [deployment documentation](https://docs.nestjs.com/deployment) for more information.
-
-If you are looking for a cloud-based platform to deploy your NestJS application, check out [Mau](https://mau.nestjs.com), our official platform for deploying NestJS applications on AWS. Mau makes deployment straightforward and fast, requiring just a few simple steps:
+### 5. Prisma 설정
 
 ```bash
-$ npm install -g @nestjs/mau
-$ mau deploy
+# Prisma Client 생성
+npx prisma generate
+
+# (옵션) Prisma Studio 실행 (DB GUI)
+npx prisma studio
 ```
 
-With Mau, you can deploy your application in just a few clicks, allowing you to focus on building features rather than managing infrastructure.
+### 6. 애플리케이션 실행
 
-## Resources
+```bash
+# 개발 모드
+npm run start:dev
 
-Check out a few resources that may come in handy when working with NestJS:
+# 프로덕션 모드
+npm run build
+npm run start:prod
+```
 
-- Visit the [NestJS Documentation](https://docs.nestjs.com) to learn more about the framework.
-- For questions and support, please visit our [Discord channel](https://discord.gg/G7Qnnhy).
-- To dive deeper and get more hands-on experience, check out our official video [courses](https://courses.nestjs.com/).
-- Deploy your application to AWS with the help of [NestJS Mau](https://mau.nestjs.com) in just a few clicks.
-- Visualize your application graph and interact with the NestJS application in real-time using [NestJS Devtools](https://devtools.nestjs.com).
-- Need help with your project (part-time to full-time)? Check out our official [enterprise support](https://enterprise.nestjs.com).
-- To stay in the loop and get updates, follow us on [X](https://x.com/nestframework) and [LinkedIn](https://linkedin.com/company/nestjs).
-- Looking for a job, or have a job to offer? Check out our official [Jobs board](https://jobs.nestjs.com).
+---
 
-## Support
+## 데이터베이스 관리
 
-Nest is an MIT-licensed open source project. It can grow thanks to the sponsors and support by the amazing backers. If you'd like to join them, please [read more here](https://docs.nestjs.com/support).
+### 스키마 확인
+```bash
+# Prisma Studio (웹 GUI)
+npx prisma studio
 
-## Stay in touch
+# psql 직접 접속
+docker exec -it chatbot_db psql -U admin -d chatbot_db
+```
 
-- Author - [Kamil Myśliwiec](https://twitter.com/kammysliwiec)
-- Website - [https://nestjs.com](https://nestjs.com/)
-- Twitter - [@nestframework](https://twitter.com/nestframework)
+### 마이그레이션
+```bash
+# 기존 DB 스키마 가져오기
+npx prisma db pull
 
-## License
+# 새 마이그레이션 생성
+npx prisma migrate dev --name migration_name
 
-Nest is [MIT licensed](https://github.com/nestjs/nest/blob/master/LICENSE).
+# 프로덕션 배포
+npx prisma migrate deploy
+```
+
+### 데이터베이스 초기화
+```bash
+# 컨테이너 및 볼륨 완전 삭제 후 재생성
+docker-compose down -v
+docker-compose up -d
+```
+
+---
+
+## 프로젝트 구조
+
+```
+likeme-like-me-api/
+├── prisma/
+│   └── schema.prisma           # Prisma 스키마 정의
+├── src/
+│   ├── prisma/                 # Prisma 모듈
+│   ├── conversation/           # 대화 관리 모듈
+│   ├── relationship/           # 관계 설정 모듈
+│   ├── tone-sample/            # 톤 샘플 관리 모듈
+│   ├── embedding/              # 임베딩 생성 워커
+│   ├── orchestrator/           # AI 오케스트레이션
+│   ├── telegram/               # 텔레그램 봇 연동
+│   └── app.module.ts
+├── docker-compose.yml          # PostgreSQL + pgvector 설정
+├── init.sql                    # DB 초기화 스크립트
+├── .env                        # 환경 변수
+├── NEW_DIRECTION.md            # 프로젝트 방향성 변경사항
+└── DB_SCHEMA.md                # DB 스키마 상세 설명
+```
+
+---
+
+## API 엔드포인트 (계획)
+
+### 대화 관리
+- `POST /api/conversations` - 대화 세션 생성
+- `GET /api/conversations/:id/messages` - 메시지 조회
+- `POST /api/conversations/:id/messages` - 메시지 전송 (AI 응답 생성)
+
+### 관계 설정
+- `GET /api/relationships/:partnerId` - 관계 설정 조회
+- `PUT /api/relationships/:partnerId` - 관계 설정 업데이트
+
+### 톤 샘플 (RAG)
+- `POST /api/tone-samples` - 톤 샘플 추가
+- `GET /api/tone-samples` - 톤 샘플 조회
+
+### 지식 베이스 (옵션)
+- `POST /api/knowledge/upload` - 지식 업로드
+- `GET /api/knowledge` - 지식 조회
+
+---
+
+## 개발 가이드
+
+### 테스트
+```bash
+# 단위 테스트
+npm run test
+
+# E2E 테스트
+npm run test:e2e
+
+# 테스트 커버리지
+npm run test:cov
+```
+
+### 코드 포맷팅
+```bash
+# Prettier 실행
+npm run format
+
+# ESLint 실행
+npm run lint
+```
+
+---
+
+## 시스템 아키텍처
+
+```
+┌─────────────┐
+│  Telegram   │
+│   Client    │
+└──────┬──────┘
+       │
+       ▼
+┌─────────────────────────────────────────┐
+│           NestJS Backend                │
+│  ┌─────────────────────────────────┐   │
+│  │  Orchestrator                    │   │
+│  │  - 컨텍스트 수집                   │   │
+│  │  - RAG 검색 (tone + knowledge)   │   │
+│  │  - AI 페이로드 생성               │   │
+│  └─────────────┬───────────────────┘   │
+│                │                        │
+│  ┌─────────────▼───────────────────┐   │
+│  │  PostgreSQL + pgvector          │   │
+│  │  - conversations                 │   │
+│  │  - messages                      │   │
+│  │  - relationships (10 categories) │   │
+│  │  - tone_samples (vector search)  │   │
+│  └─────────────────────────────────┘   │
+└──────────────┬──────────────────────────┘
+               │
+               ▼
+        ┌─────────────┐
+        │  OpenAI API │
+        │   (GPT)     │
+        └─────────────┘
+```
+
+---
+
+## 주요 변경 사항
+
+프로젝트 초기 방향에서 다음과 같이 변경되었습니다:
+
+### 변경 전
+- LLAMA 모델 자체 서빙
+- 벡터 DB (Chroma/Pinecone) 별도 운영
+- 카카오톡 텍스트 파싱
+
+### 변경 후
+- GPT 모델 API 호출
+- PostgreSQL + pgvector 확장
+- Telegram API 연동
+
+상세 내용: [NEW_DIRECTION.md](./docs/NEW_DIRECTION.md)
+
+---
+
+## 문제 해결
+
+### 데이터베이스 연결 실패
+```bash
+# Docker 컨테이너 상태 확인
+docker ps
+
+# 컨테이너 재시작
+docker-compose restart
+
+# 로그 확인
+docker-compose logs postgres
+```
+
+### Prisma 타입 오류
+```bash
+# Prisma Client 재생성
+npx prisma generate
+
+# 캐시 삭제 후 재빌드
+rm -rf node_modules/.prisma
+npm run build
+```
+
+### pgvector 확장 오류
+```bash
+# 컨테이너 재생성 (볼륨 포함)
+docker-compose down -v
+docker-compose up -d
+
+# psql에서 확장 확인
+docker exec -it chatbot_db psql -U admin -d chatbot_db -c "SELECT * FROM pg_extension WHERE extname = 'vector';"
+```
+
+---
+
+## 라이선스
+
+MIT
+
+---
+
+## 참고 자료
+
+- [NestJS 문서](https://docs.nestjs.com)
+- [Prisma 문서](https://www.prisma.io/docs)
+- [pgvector GitHub](https://github.com/pgvector/pgvector)
+- [OpenAI API 문서](https://platform.openai.com/docs)
+- [Telegram Bot API](https://core.telegram.org/bots/api)
+
+---
+
+## 완료된 작업
+
+- [x] PostgreSQL + pgvector Docker 설정
+- [x] Prisma 스키마 정의 및 Client 생성
+- [x] Prisma 모듈 NestJS 통합
+- [x] Telegram 봇 연동 (Long Polling)
+- [x] SSE (Server-Sent Events) 실시간 메시지 알림
+- [x] CORS 설정
+
+## 다음 단계
+
+1. **Prisma 마이그레이션 실행** (DB 테이블 생성)
+2. **Conversation Service 구현** (대화/메시지 CRUD)
+3. **Relationship Service 구현** (관계 설정 CRUD)
+4. **Style Service 구현** (스타일 프로필 관리)
+5. **OpenAI API 연동** (GPT 호출, 임베딩 생성)
+6. **Retrieval Service 구현** (RAG 검색 로직)
+7. **Orchestrator 구현** (컨텍스트 수집 → AI 호출 → 후처리)
+8. **Tone Sample 관리 API** 구현
