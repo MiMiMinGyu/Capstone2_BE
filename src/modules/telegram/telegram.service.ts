@@ -1,8 +1,8 @@
-import { Injectable, Logger, OnModuleInit, MessageEvent } from '@nestjs/common';
+import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Telegraf } from 'telegraf';
 import { TelegramMessage, SavedMessage, TelegramChat } from './interfaces';
-import { Subject } from 'rxjs';
+import { Subject, Observable } from 'rxjs';
 
 @Injectable()
 export class TelegramService implements OnModuleInit {
@@ -13,16 +13,18 @@ export class TelegramService implements OnModuleInit {
   private receivedMessages: SavedMessage[] = [];
   private messageIdCounter = 1;
 
-  // SSE를 위한 Subject - 새 메시지 이벤트 스트림
-  private messageStream = new Subject<MessageEvent>();
+  // SSE를 위한 이벤트 스트림
+  private messageEventSubject = new Subject<SavedMessage>();
 
   constructor(private readonly config: ConfigService) {}
 
-  async onModuleInit() {
+  onModuleInit() {
     const token = this.config.get<string>('TELEGRAM_BOT_TOKEN');
 
     if (!token) {
-      this.logger.warn('TELEGRAM_BOT_TOKEN is not defined - Telegram bot disabled');
+      this.logger.warn(
+        'TELEGRAM_BOT_TOKEN is not defined - Telegram bot disabled',
+      );
       return; // 토큰이 없으면 조용히 스킵
     }
 
@@ -50,11 +52,14 @@ export class TelegramService implements OnModuleInit {
     });
 
     // await 제거: 비동기로 실행하여 HTTP 서버 시작 블로킹 방지
-    this.bot.launch().then(() => {
-      this.logger.log('✅ Telegram bot launched (long polling)');
-    }).catch((error) => {
-      this.logger.error(`❌ Failed to launch Telegram bot: ${error.message}`);
-    });
+    this.bot
+      .launch()
+      .then(() => {
+        this.logger.log('✅ Telegram bot launched (long polling)');
+      })
+      .catch((error) => {
+        this.logger.error(`❌ Failed to launch Telegram bot: ${error.message}`);
+      });
 
     process.once('SIGINT', () => this.bot.stop('SIGINT'));
     process.once('SIGTERM', () => this.bot.stop('SIGTERM'));
@@ -147,21 +152,15 @@ export class TelegramService implements OnModuleInit {
     this.receivedMessages.unshift(savedMessage); // 최신 메시지가 맨 앞에 오도록
     this.logger.log(`Message saved: ${JSON.stringify(savedMessage)}`);
 
-    // SSE 이벤트 발송 - 프론트엔드에 실시간 알림
-    this.messageStream.next({
-      data: JSON.stringify(savedMessage),
-    });
-    this.logger.log(`SSE event emitted for message ID: ${savedMessage.id}`);
+    // SSE 이벤트 발송 - 새 메시지 실시간 알림
+    this.logger.log(`🔥 SSE 이벤트 발송 중... messageId: ${savedMessage.id}`);
+    this.messageEventSubject.next(savedMessage);
+    this.logger.log(`✅ SSE 이벤트 발송 완료`);
   }
 
   // 받은 메시지 목록 조회
   getReceivedMessages(): SavedMessage[] {
     return this.receivedMessages;
-  }
-
-  // SSE를 위한 메시지 스트림 Observable 반환
-  getMessageStream() {
-    return this.messageStream.asObservable();
   }
 
   // 특정 메시지 조회
@@ -181,11 +180,13 @@ export class TelegramService implements OnModuleInit {
     // 실제 AI 서버 호출 시뮬레이션 (지연 추가)
     await new Promise((resolve) => setTimeout(resolve, 500));
 
-    // AI 추천 답변들 생성 (3개 옵션 제공)
+    // AI 추천 답변 (임시 하드코딩)
     const recommendations = [
-      `그렇게 생각해! ${message.text}에 대해서 나도 비슷하게 느꼈어`,
-      `맞아 맞아~ 나도 ${message.text} 때문에 고민했던 적 있어`,
-      `아 진짜? ${message.text} 얘기 들으니까 공감돼`,
+      `지금 연락하기 힘든 상황이라 이따 연락할게.`,
+      `${message.text}? 좋지.`,
+      `나 아무거나 다 괜찮아`,
+      `응, 알겠어.`,
+      `오케이 땡큐~`,
     ];
 
     // 메시지에 AI 추천 답변 저장
@@ -221,5 +222,10 @@ export class TelegramService implements OnModuleInit {
       this.logger.error(`Failed to send reply: ${error}`);
       throw error;
     }
+  }
+
+  // SSE 스트림 제공 메서드
+  getMessageEventStream(): Observable<SavedMessage> {
+    return this.messageEventSubject.asObservable();
   }
 }
