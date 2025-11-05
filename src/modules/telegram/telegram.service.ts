@@ -57,7 +57,7 @@ export class TelegramService implements OnModuleInit {
       .then(() => {
         this.logger.log('✅ Telegram bot launched (long polling)');
       })
-      .catch((error) => {
+      .catch((error: Error) => {
         this.logger.error(`❌ Failed to launch Telegram bot: ${error.message}`);
       });
 

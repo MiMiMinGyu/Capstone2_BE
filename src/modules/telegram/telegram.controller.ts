@@ -1,14 +1,13 @@
 import { Body, Controller, Post, Get, Sse, MessageEvent } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiResponse } from '@nestjs/swagger';
 import { Observable } from 'rxjs';
+import { map } from 'rxjs/operators';
 import { TelegramService } from './telegram.service';
 import {
   SendMessageDto,
   GenerateRecommendationsDto,
   SendReplyDto,
 } from './dto';
-import { Observable } from 'rxjs';
-import { map } from 'rxjs/operators';
 
 // Swagger 태그 설정 - API 문서에서 텔레그램 관련 엔드포인트 그룹화
 @ApiTags('telegram')
@@ -31,14 +30,6 @@ export class TelegramController {
   @ApiResponse({ status: 200, description: '받은 메시지 목록' })
   getReceivedMessages() {
     return this.tg.getReceivedMessages();
-  }
-
-  // SSE 이벤트 스트림 - 새 메시지 실시간 알림
-  @Sse('events')
-  @ApiOperation({ summary: '새 메시지 SSE 이벤트 스트림' })
-  @ApiResponse({ status: 200, description: 'SSE 연결 성공' })
-  getMessageEvents(): Observable<MessageEvent> {
-    return this.tg.getMessageStream();
   }
 
   // AI 추천 답변 생성 API
