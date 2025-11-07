@@ -6,6 +6,8 @@
 
 상대방과의 관계에 따라 적절한 말투, 격식, 이모지를 자동으로 조정하여 자연스러운 대화를 생성하는 AI 챗봇 백엔드입니다.
 
+**📌 현재 프로젝트 상태 및 다음 단계**: [CURRENT_STATUS.md](./docs/CURRENT_STATUS.md)
+
 ### 주요 기능
 - **10개 관계 카테고리** 기반 말투 조정
 - **RAG (Retrieval-Augmented Generation)** 시스템
@@ -329,7 +331,11 @@ MIT
 
 ## 다음 단계
 
-1. **Prisma 마이그레이션 실행** (DB 테이블 생성)
+1. **Prisma DB 동기화** (기존 DB 스키마를 Prisma로 가져오기)
+   ```bash
+   npx prisma db pull
+   npx prisma generate
+   ```
 2. **Conversation Service 구현** (대화/메시지 CRUD)
 3. **Relationship Service 구현** (관계 설정 CRUD)
 4. **Style Service 구현** (스타일 프로필 관리)
@@ -337,3 +343,5 @@ MIT
 6. **Retrieval Service 구현** (RAG 검색 로직)
 7. **Orchestrator 구현** (컨텍스트 수집 → AI 호출 → 후처리)
 8. **Tone Sample 관리 API** 구현
+
+**주의**: DB 테이블은 이미 `docker-compose`의 `init.sql`로 생성되어 있습니다. Prisma 마이그레이션이 아닌 동기화(`db pull`)가 필요합니다.
