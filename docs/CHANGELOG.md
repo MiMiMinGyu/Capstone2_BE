@@ -1,5 +1,83 @@
 # 변경 이력
 
+## [2025-11-07] Auth 모듈 완전 구현 및 최적화
+
+### 주요 변경사항
+
+#### 1. JWT 기반 인증 시스템 완성
+**구현된 기능:**
+- ✅ 회원가입 (`POST /auth/register`)
+- ✅ 로그인 (`POST /auth/login`)
+- ✅ Access Token 갱신 (`POST /auth/refresh`)
+- ✅ 현재 사용자 정보 조회 (`GET /auth/me`)
+- ✅ 로그아웃 (`POST /auth/logout`)
+
+**보안 구현:**
+- bcrypt 비밀번호 해싱 (saltRounds: 10)
+- JWT Access Token (15분 유효)
+- JWT Refresh Token (30일 유효, DB 저장)
+- Passport JWT Strategy
+- JWT Auth Guard (인증 보호)
+
+#### 2. Auth 모듈 구조
+```
+src/modules/auth/
+├── auth.module.ts          # 모듈 설정
+├── auth.controller.ts      # 5개 엔드포인트
+├── auth.service.ts         # 인증 로직
+├── dto/                    # 요청 검증
+│   ├── register.dto.ts
+│   ├── login.dto.ts
+│   ├── refresh.dto.ts
+│   └── index.ts
+├── guards/
+│   └── jwt-auth.guard.ts   # 인증 가드
+├── interfaces/             # 타입 정의
+│   ├── jwt-user.interface.ts
+│   ├── auth-response.interface.ts
+│   └── index.ts
+└── strategies/
+    └── jwt.strategy.ts     # JWT 전략
+```
+
+#### 3. 데이터베이스 스키마 업데이트
+**users 테이블 컬럼 추가:**
+- `email` VARCHAR(255) UNIQUE NOT NULL - 로그인용 이메일
+- `password_hash` VARCHAR(255) NOT NULL - 해싱된 비밀번호
+- `refresh_token` VARCHAR(500) - Refresh Token 저장
+
+#### 4. 문서화 완료
+**새로 생성된 문서:**
+- `docs/API_SPECIFICATION.md` - 프론트엔드용 완벽한 API 명세
+- `docs/AUTH_ARCHITECTURE.md` - JWT 인증 아키텍처 완벽 가이드 (1000줄)
+- `docs/CURRENT_STATUS.md` - 프로젝트 현재 상태
+- `docs/IMPLEMENTATION_PLAN.md` - 전체 구현 계획
+
+**업데이트된 문서:**
+- `docs/FRONTEND_INTEGRATION.md` - Auth 연동 예시 코드 추가
+- `README.md` - 프로젝트 개요 업데이트
+- `docs/DB_SCHEMA.md` - users 테이블 스키마 업데이트
+- `docs/CHANGELOG.md` - 변경 이력 업데이트 (현재 파일)
+
+**삭제된 문서:**
+- `docs/NEW_DIRECTION.md` - 더 이상 필요 없음
+
+#### 5. 코드 품질
+- TypeScript 타입 안정성 100%
+- ESLint 오류 0개
+- class-validator를 통한 DTO 검증
+- Swagger API 문서화 완료
+- 인터페이스 통합 및 재사용성 향상
+
+#### 6. 기술 스택 추가
+**인증 관련:**
+- `@nestjs/passport` - Passport 통합
+- `@nestjs/jwt` - JWT 지원
+- `passport-jwt` - JWT Strategy
+- `bcrypt` - 비밀번호 해싱
+
+---
+
 ## [2025-01-04] 프로젝트 방향성 변경 및 DB 스키마 재설계
 
 ### 주요 변경사항
@@ -95,10 +173,12 @@
 ## 다음 작업 (예정)
 
 ### 백엔드 개발
-- [ ] Prisma 모듈 NestJS 통합
+- [x] Prisma 모듈 NestJS 통합 ✅
+- [x] Auth 모듈 구현 (JWT 인증) ✅
 - [ ] 관계 설정 CRUD API 구현
 - [ ] 대화 관리 CRUD API 구현
 - [ ] 톤 샘플 관리 API 구현
+- [ ] 카카오톡 txt 파일 업로드 및 파싱
 
 ### AI/RAG 시스템
 - [ ] OpenAI API 연동
@@ -113,15 +193,21 @@
 - [ ] 응답 후처리 (문장 수 제한, 반문 금지 등)
 
 ### Telegram 연동
-- [ ] 웹훅 설정
-- [ ] 메시지 수신/송신 핸들러
+- [x] Telegram 봇 연동 (Long Polling) ✅
+- [x] SSE 실시간 메시지 알림 ✅
+- [ ] 텔레그램 메시지 DB 저장
+- [ ] 웹훅 설정 (옵션)
 - [ ] 에러 처리 및 로깅
 
 ---
 
 ## 참고 문서
 
-- [NEW_DIRECTION.md](./NEW_DIRECTION.md) - 프로젝트 방향성 상세 변경사항
+- [API_SPECIFICATION.md](./API_SPECIFICATION.md) - API 명세서 (프론트엔드용)
+- [AUTH_ARCHITECTURE.md](./AUTH_ARCHITECTURE.md) - JWT 인증 아키텍처 가이드
+- [FRONTEND_INTEGRATION.md](./FRONTEND_INTEGRATION.md) - 프론트엔드 연동 가이드
+- [CURRENT_STATUS.md](./CURRENT_STATUS.md) - 프로젝트 현재 상태
+- [IMPLEMENTATION_PLAN.md](./IMPLEMENTATION_PLAN.md) - 전체 구현 계획
 - [DB_SCHEMA.md](./DB_SCHEMA.md) - DB 스키마 상세 설명
 - [SETUP_GUIDE.md](./SETUP_GUIDE.md) - 프로젝트 설정 가이드
 - [README.md](./README.md) - 프로젝트 개요 및 빠른 시작

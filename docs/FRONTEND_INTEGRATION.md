@@ -1,16 +1,36 @@
 # LikeMe API - 프론트엔드 연동 가이드
 
+> 최종 업데이트: 2025-11-07
+
 ## 📋 프로젝트 개요
-AI 답변 추천 서비스 백엔드 API입니다. 텔레그램 봇을 통해 메시지를 수신하고, 사용자가 프론트엔드에서 AI 추천 답변을 선택하여 응답할 수 있습니다.
+
+AI 답변 추천 서비스 백엔드 API입니다. JWT 기반 인증을 통해 사용자별 개인화된 서비스를 제공하며, 텔레그램 봇을 통해 메시지를 수신하고 AI 추천 답변을 제공합니다.
+
+---
 
 ## 🎯 주요 플로우
+
+### 1. 인증 플로우
 ```
-[제3자] → [텔레그램 봇] → [백엔드 저장] → [프론트엔드에서 조회]
+[사용자] → [회원가입/로그인] → [JWT 토큰 발급]
+                ↓
+[로컬스토리지 저장] → [API 요청 시 토큰 포함]
+                ↓
+    [Access Token 만료] → [Refresh Token으로 갱신]
+```
+
+### 2. 메시지 처리 플로우
+```
+[제3자] → [텔레그램 봇] → [백엔드 저장] → [SSE로 실시간 알림]
+                                      ↓
+                            [프론트엔드에서 조회]
                                       ↓
                               [AI 추천 답변 생성]
                                       ↓
 [제3자] ← [텔레그램 봇] ← [답변 전송] ← [사용자가 선택]
 ```
+
+---
 
 ## 🔗 API 엔드포인트
 
@@ -24,275 +44,470 @@ http://localhost:3000
 http://localhost:3000/api
 ```
 
----
-
-## 📨 **1. 받은 메시지 목록 조회**
-
-### **GET** `/telegram/messages`
-
-받은 메시지 목록을 조회합니다.
-
-**응답 예시:**
-```json
-[
-  {
-    "id": 1,
-    "messageId": 12345,
-    "from": {
-      "id": 987654321,
-      "first_name": "김철수",
-      "username": "kimcs"
-    },
-    "chat": {
-      "id": 987654321,
-      "type": "private",
-      "first_name": "김철수"
-    },
-    "text": "안녕하세요! 오늘 어떠세요?",
-    "timestamp": "2025-01-15T10:30:00.000Z",
-    "isRead": false,
-    "aiRecommendations": [],
-    "replied": false
-  }
-]
-```
+### **상세 API 명세서**
+전체 API 명세는 `docs/API_SPECIFICATION.md` 참조
 
 ---
 
-## 🤖 **2. AI 추천 답변 생성**
+## 🔐 인증 (Authentication)
 
-### **POST** `/telegram/recommendations`
+### 1. 회원가입
 
-특정 메시지에 대한 AI 추천 답변을 생성합니다.
-
-**요청 Body:**
-```json
-{
-  "messageId": 1
-}
-```
-
-**응답 예시:**
-```json
-{
-  "messageId": 1,
-  "recommendations": [
-    "그렇게 생각해! 안녕하세요! 오늘 어떠세요?에 대해서 나도 비슷하게 느꼈어",
-    "맞아 맞아~ 나도 안녕하세요! 오늘 어떠세요? 때문에 고민했던 적 있어",
-    "아 진짜? 안녕하세요! 오늘 어떠세요? 얘기 들으니까 공감돼"
-  ]
-}
-```
-
----
-
-## 📤 **3. 선택한 답변 전송**
-
-### **POST** `/telegram/reply`
-
-사용자가 선택한 답변을 텔레그램으로 전송합니다.
-
-**요청 Body:**
-```json
-{
-  "messageId": 1,
-  "selectedReply": "안녕하세요! 저도 오늘 좋은 하루 보내고 있어요 😊"
-}
-```
-
-**응답 예시:**
-```json
-{
-  "success": true,
-  "message": "Reply sent successfully"
-}
-```
-
----
-
-## 📱 **4. 메시지 직접 전송 (옵션)**
-
-### **POST** `/telegram/send`
-
-프론트엔드에서 직접 텔레그램으로 메시지를 전송할 수 있습니다.
-
-**요청 Body:**
-```json
-{
-  "chatId": 987654321,
-  "text": "안녕하세요!"
-}
-```
-
----
-
-## 🔍 **5. 봇 상태 확인**
-
-### **GET** `/telegram/status`
-
-텔레그램 봇의 현재 상태를 확인합니다.
-
-**응답 예시:**
-```json
-{
-  "status": "Telegram bot is running",
-  "timestamp": "2025-01-15T10:30:00.000Z"
-}
-```
-
----
-
-## 🌊 **6. SSE (Server-Sent Events) - 실시간 메시지 알림**
-
-### **GET** `/telegram/events`
-
-새 메시지가 도착하면 서버에서 자동으로 클라이언트에 푸시합니다.
-
-**SSE 연결 예시:**
-```javascript
-// SSE 연결 설정
-const eventSource = new EventSource('http://localhost:3000/telegram/events');
-
-eventSource.onmessage = (event) => {
-  const newMessage = JSON.parse(event.data);
-  console.log('새 메시지 도착:', newMessage);
-  // UI 업데이트
-};
-
-eventSource.onerror = (error) => {
-  console.error('SSE 연결 오류:', error);
-  eventSource.close();
-};
-```
-
----
-
-## 💡 **프론트엔드 구현 권장사항**
-
-### **1. 실시간 업데이트 (SSE 사용 - 권장)**
-```javascript
-// SSE를 통한 실시간 메시지 수신
-const eventSource = new EventSource('http://localhost:3000/telegram/events');
-
-eventSource.onmessage = (event) => {
-  const newMessage = JSON.parse(event.data);
-  // 메시지 목록에 새 메시지 추가
-  setMessages(prev => [newMessage, ...prev]);
-};
-
-eventSource.onerror = () => {
-  console.error('SSE 연결 끊김, 재연결 시도...');
-  eventSource.close();
-  // 재연결 로직
-};
-```
-
-### **1-1. 실시간 업데이트 (폴링 - 대안)**
-```javascript
-// 주기적으로 새 메시지 확인 (SSE를 사용할 수 없는 경우)
-const checkNewMessages = async () => {
+```typescript
+const register = async (userData: RegisterData) => {
   try {
-    const response = await fetch('/telegram/messages');
-    const messages = await response.json();
-    // 새 메시지 UI 업데이트
+    const response = await fetch('http://localhost:3000/auth/register', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        username: userData.username,
+        email: userData.email,
+        password: userData.password,
+        name: userData.name, // 선택
+      }),
+    });
+
+    if (!response.ok) {
+      throw new Error('Registration failed');
+    }
+
+    const data = await response.json();
+
+    // 토큰 저장
+    localStorage.setItem('access_token', data.access_token);
+    localStorage.setItem('refresh_token', data.refresh_token);
+    localStorage.setItem('user', JSON.stringify(data.user));
+
+    return data;
+  } catch (error) {
+    console.error('Registration error:', error);
+    throw error;
+  }
+};
+
+// 사용 예시
+interface RegisterData {
+  username: string;
+  email: string;
+  password: string;
+  name?: string;
+}
+```
+
+---
+
+### 2. 로그인
+
+```typescript
+const login = async (email: string, password: string) => {
+  try {
+    const response = await fetch('http://localhost:3000/auth/login', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ email, password }),
+    });
+
+    if (!response.ok) {
+      throw new Error('Login failed');
+    }
+
+    const data = await response.json();
+
+    // 토큰 저장
+    localStorage.setItem('access_token', data.access_token);
+    localStorage.setItem('refresh_token', data.refresh_token);
+    localStorage.setItem('user', JSON.stringify(data.user));
+
+    return data;
+  } catch (error) {
+    console.error('Login error:', error);
+    throw error;
+  }
+};
+```
+
+---
+
+### 3. 로그아웃
+
+```typescript
+const logout = async () => {
+  try {
+    const token = localStorage.getItem('access_token');
+
+    await fetch('http://localhost:3000/auth/logout', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${token}`,
+      },
+    });
+
+    // 로컬 스토리지 정리
+    localStorage.removeItem('access_token');
+    localStorage.removeItem('refresh_token');
+    localStorage.removeItem('user');
+
+    // 로그인 페이지로 리다이렉트
+    window.location.href = '/login';
+  } catch (error) {
+    console.error('Logout error:', error);
+  }
+};
+```
+
+---
+
+### 4. 토큰 자동 갱신 (Axios 인터셉터)
+
+```typescript
+import axios from 'axios';
+
+const api = axios.create({
+  baseURL: 'http://localhost:3000',
+});
+
+// 요청 인터셉터 - 토큰 자동 추가
+api.interceptors.request.use((config) => {
+  const token = localStorage.getItem('access_token');
+  if (token) {
+    config.headers.Authorization = `Bearer ${token}`;
+  }
+  return config;
+});
+
+// 응답 인터셉터 - 토큰 자동 갱신
+api.interceptors.response.use(
+  (response) => response,
+  async (error) => {
+    const originalRequest = error.config;
+
+    // 401 에러이고 재시도가 아닌 경우
+    if (error.response?.status === 401 && !originalRequest._retry) {
+      originalRequest._retry = true;
+
+      try {
+        const refreshToken = localStorage.getItem('refresh_token');
+
+        if (!refreshToken) {
+          throw new Error('No refresh token');
+        }
+
+        const response = await axios.post('http://localhost:3000/auth/refresh', {
+          refresh_token: refreshToken
+        });
+
+        const { access_token } = response.data;
+        localStorage.setItem('access_token', access_token);
+
+        // 원래 요청 재시도
+        originalRequest.headers.Authorization = `Bearer ${access_token}`;
+        return api(originalRequest);
+
+      } catch (refreshError) {
+        // Refresh Token도 만료됨 → 로그인 페이지로
+        localStorage.clear();
+        window.location.href = '/login';
+        return Promise.reject(refreshError);
+      }
+    }
+
+    return Promise.reject(error);
+  }
+);
+
+export default api;
+```
+
+---
+
+### 5. 사용자 정보 조회
+
+```typescript
+const getCurrentUser = async () => {
+  try {
+    const response = await api.get('/auth/me');
+    return response.data;
+  } catch (error) {
+    console.error('Get user error:', error);
+    throw error;
+  }
+};
+```
+
+---
+
+## 📨 텔레그램 메시지 처리
+
+### 1. 실시간 메시지 수신 (SSE - 권장)
+
+```typescript
+// React 예시
+import { useEffect, useState } from 'react';
+
+function MessageListener() {
+  const [messages, setMessages] = useState([]);
+
+  useEffect(() => {
+    const eventSource = new EventSource('http://localhost:3000/telegram/events');
+
+    eventSource.onmessage = (event) => {
+      const newMessage = JSON.parse(event.data);
+      console.log('새 메시지 도착:', newMessage);
+
+      // 메시지 목록에 추가
+      setMessages(prev => [newMessage, ...prev]);
+
+      // 알림 표시
+      showNotification(newMessage);
+    };
+
+    eventSource.onerror = (error) => {
+      console.error('SSE 연결 오류:', error);
+      eventSource.close();
+
+      // 재연결 시도
+      setTimeout(() => {
+        // 재연결 로직
+      }, 5000);
+    };
+
+    // 클린업
+    return () => {
+      eventSource.close();
+    };
+  }, []);
+
+  return (
+    <div>
+      {messages.map(msg => (
+        <MessageCard key={msg.id} message={msg} />
+      ))}
+    </div>
+  );
+}
+```
+
+---
+
+### 2. 메시지 목록 조회 (폴링 - 대안)
+
+```typescript
+const fetchMessages = async () => {
+  try {
+    const response = await api.get('/telegram/messages');
+    return response.data;
   } catch (error) {
     console.error('Failed to fetch messages:', error);
+    throw error;
   }
 };
 
-// 5초마다 새 메시지 확인
-setInterval(checkNewMessages, 5000);
-```
-
-### **2. AI 추천 답변 요청**
-```javascript
-const generateRecommendations = async (messageId) => {
-  try {
-    const response = await fetch('/telegram/recommendations', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({ messageId })
-    });
-    const data = await response.json();
-    return data.recommendations;
-  } catch (error) {
-    console.error('Failed to generate recommendations:', error);
-  }
-};
-```
-
-### **3. 답변 전송**
-```javascript
-const sendReply = async (messageId, selectedReply) => {
-  try {
-    const response = await fetch('/telegram/reply', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({ messageId, selectedReply })
-    });
-    const result = await response.json();
-    if (result.success) {
-      // UI에서 답장 완료 표시
-    }
-  } catch (error) {
-    console.error('Failed to send reply:', error);
-  }
-};
-```
-
-### **4. 상태 관리 예시 (React)**
-```javascript
-const [messages, setMessages] = useState([]);
-const [selectedMessage, setSelectedMessage] = useState(null);
-const [recommendations, setRecommendations] = useState([]);
-
-// 메시지 목록 로드
+// 주기적으로 새 메시지 확인
 useEffect(() => {
-  const loadMessages = async () => {
-    const response = await fetch('/telegram/messages');
-    const data = await response.json();
-    setMessages(data);
-  };
-  
-  loadMessages();
-  const interval = setInterval(loadMessages, 5000);
+  const interval = setInterval(() => {
+    fetchMessages().then(messages => {
+      setMessages(messages);
+    });
+  }, 5000); // 5초마다
+
   return () => clearInterval(interval);
 }, []);
 ```
 
 ---
 
-## 🔧 **환경 설정**
+### 3. AI 추천 답변 생성
 
-### **환경 변수 (.env.development)**
-```
-NODE_ENV=development
-PORT=3000
-TELEGRAM_BOT_TOKEN=your_bot_token_here
-```
+```typescript
+const generateRecommendations = async (messageId: number) => {
+  try {
+    const response = await api.post('/telegram/recommendations', {
+      messageId
+    });
+    return response.data.recommendations;
+  } catch (error) {
+    console.error('Failed to generate recommendations:', error);
+    throw error;
+  }
+};
 
-### **서버 실행**
-```bash
-npm run start:dev
+// 사용 예시
+const handleGenerateReply = async (messageId: number) => {
+  setLoading(true);
+  try {
+    const recommendations = await generateRecommendations(messageId);
+    setRecommendations(recommendations);
+  } catch (error) {
+    alert('추천 답변 생성에 실패했습니다.');
+  } finally {
+    setLoading(false);
+  }
+};
 ```
 
 ---
 
-## 📝 **타입 정의 (TypeScript 프론트엔드용)**
+### 4. 답변 전송
 
 ```typescript
-interface TelegramUser {
+const sendReply = async (messageId: number, selectedReply: string) => {
+  try {
+    const response = await api.post('/telegram/reply', {
+      messageId,
+      selectedReply
+    });
+    return response.data;
+  } catch (error) {
+    console.error('Failed to send reply:', error);
+    throw error;
+  }
+};
+
+// 사용 예시
+const handleSendReply = async (reply: string) => {
+  try {
+    await sendReply(selectedMessage.id, reply);
+    alert('답장이 전송되었습니다!');
+    // 메시지 목록 새로고침
+    fetchMessages();
+  } catch (error) {
+    alert('답장 전송에 실패했습니다.');
+  }
+};
+```
+
+---
+
+## 💡 상태 관리 예시 (React + Context)
+
+### AuthContext
+
+```typescript
+// contexts/AuthContext.tsx
+import React, { createContext, useContext, useState, useEffect } from 'react';
+
+interface User {
+  id: string;
+  username: string;
+  name: string | null;
+  email: string;
+  created_at: string;
+}
+
+interface AuthContextType {
+  user: User | null;
+  login: (email: string, password: string) => Promise<void>;
+  logout: () => Promise<void>;
+  isAuthenticated: boolean;
+  loading: boolean;
+}
+
+const AuthContext = createContext<AuthContextType | undefined>(undefined);
+
+export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+  const [user, setUser] = useState<User | null>(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    // 초기 로드 시 사용자 정보 확인
+    const storedUser = localStorage.getItem('user');
+    if (storedUser) {
+      setUser(JSON.parse(storedUser));
+    }
+    setLoading(false);
+  }, []);
+
+  const login = async (email: string, password: string) => {
+    const response = await fetch('http://localhost:3000/auth/login', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email, password }),
+    });
+
+    if (!response.ok) {
+      throw new Error('Login failed');
+    }
+
+    const data = await response.json();
+
+    localStorage.setItem('access_token', data.access_token);
+    localStorage.setItem('refresh_token', data.refresh_token);
+    localStorage.setItem('user', JSON.stringify(data.user));
+
+    setUser(data.user);
+  };
+
+  const logout = async () => {
+    const token = localStorage.getItem('access_token');
+
+    if (token) {
+      await fetch('http://localhost:3000/auth/logout', {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${token}` },
+      });
+    }
+
+    localStorage.clear();
+    setUser(null);
+  };
+
+  return (
+    <AuthContext.Provider
+      value={{
+        user,
+        login,
+        logout,
+        isAuthenticated: !!user,
+        loading,
+      }}
+    >
+      {children}
+    </AuthContext.Provider>
+  );
+};
+
+export const useAuth = () => {
+  const context = useContext(AuthContext);
+  if (context === undefined) {
+    throw new Error('useAuth must be used within an AuthProvider');
+  }
+  return context;
+};
+```
+
+---
+
+## 📝 TypeScript 타입 정의
+
+```typescript
+// types/api.ts
+
+export interface User {
+  id: string;
+  username: string;
+  name: string | null;
+  email: string;
+  created_at: string;
+}
+
+export interface AuthResponse {
+  user: User;
+  access_token: string;
+  refresh_token: string;
+}
+
+export interface TelegramUser {
   id: number;
   first_name: string;
   last_name?: string;
   username?: string;
 }
 
-interface TelegramChat {
+export interface TelegramChat {
   id: number;
   type: 'private' | 'group' | 'supergroup' | 'channel';
   title?: string;
@@ -301,7 +516,7 @@ interface TelegramChat {
   last_name?: string;
 }
 
-interface SavedMessage {
+export interface SavedMessage {
   id: number;
   messageId?: number;
   from?: TelegramUser;
@@ -314,12 +529,12 @@ interface SavedMessage {
   selectedReply?: string;
 }
 
-interface RecommendationsResponse {
+export interface RecommendationsResponse {
   messageId: number;
   recommendations: string[];
 }
 
-interface ReplyResponse {
+export interface ReplyResponse {
   success: boolean;
   message: string;
 }
@@ -327,20 +542,126 @@ interface ReplyResponse {
 
 ---
 
-## ⚠️ **주의사항**
+## 🔧 환경 설정
 
-1. **CORS 설정**: 프론트엔드 도메인에 맞게 CORS 설정 (현재 모든 origin 허용)
-2. **에러 처리**: 네트워크 오류, API 오류에 대한 적절한 에러 처리 구현
-3. **로딩 상태**: API 호출 중 로딩 상태 표시
-4. **SSE 연결 관리**: 페이지 이탈 시 `eventSource.close()` 호출 필요
-5. **봇 토큰**: 실제 텔레그램 봇 토큰 설정 필요
+### .env.development (프론트엔드)
+
+```
+VITE_API_BASE_URL=http://localhost:3000
+VITE_WS_URL=http://localhost:3000
+```
+
+### Vite Config (CORS 프록시)
+
+```typescript
+// vite.config.ts
+export default defineConfig({
+  server: {
+    proxy: {
+      '/api': {
+        target: 'http://localhost:3000',
+        changeOrigin: true,
+        rewrite: (path) => path.replace(/^\/api/, '')
+      }
+    }
+  }
+});
+```
 
 ---
 
-## 🎨 **UI/UX 권장사항**
+## ⚠️ 주의사항
 
-1. **메시지 목록**: 읽지 않은 메시지 강조 표시
-2. **AI 추천**: 3개 옵션을 카드 형태로 표시
-3. **답장 완료**: 답장한 메시지는 회색으로 표시
-4. **실시간 알림**: 새 메시지 도착 시 알림
-5. **응답 시간**: AI 추천 생성 중 로딩 스피너 표시
+### 1. 보안
+- **토큰 저장**: localStorage는 XSS 공격에 취약. httpOnly Cookie 사용 권장
+- **HTTPS**: 프로덕션에서는 반드시 HTTPS 사용
+- **토큰 만료**: Access Token은 15분, Refresh Token은 30일 유효
+
+### 2. 에러 처리
+```typescript
+// 모든 API 호출에 에러 처리 추가
+try {
+  const data = await api.get('/some-endpoint');
+} catch (error) {
+  if (error.response?.status === 401) {
+    // 인증 오류 - 로그인 페이지로
+  } else if (error.response?.status === 500) {
+    // 서버 오류
+    alert('서버 오류가 발생했습니다.');
+  } else {
+    // 네트워크 오류
+    alert('네트워크 오류가 발생했습니다.');
+  }
+}
+```
+
+### 3. SSE 연결 관리
+```typescript
+// 페이지 이탈 시 SSE 연결 종료
+useEffect(() => {
+  return () => {
+    eventSource.close();
+  };
+}, []);
+```
+
+### 4. 로딩 상태
+```typescript
+// API 호출 중 로딩 표시
+const [loading, setLoading] = useState(false);
+
+const fetchData = async () => {
+  setLoading(true);
+  try {
+    const data = await api.get('/endpoint');
+    // 데이터 처리
+  } finally {
+    setLoading(false);
+  }
+};
+```
+
+---
+
+## 🎨 UI/UX 권장사항
+
+1. **로그인 화면**
+   - 회원가입/로그인 탭 구분
+   - "로그인 상태 유지" 체크박스 (localStorage vs sessionStorage)
+   - 비밀번호 표시/숨김 토글
+
+2. **메시지 목록**
+   - 읽지 않은 메시지 강조 표시
+   - 시간 표시 (상대 시간: "5분 전")
+   - 답장 완료된 메시지는 회색으로 표시
+
+3. **AI 추천 답변**
+   - 3개 옵션을 카드 형태로 표시
+   - 각 카드에 "선택" 버튼
+   - 생성 중 로딩 스피너 표시
+
+4. **실시간 알림**
+   - 새 메시지 도착 시 브라우저 알림
+   - 읽지 않은 메시지 개수 배지 표시
+
+5. **반응형 디자인**
+   - 모바일, 태블릿, 데스크톱 지원
+   - 터치 제스처 지원 (스와이프 등)
+
+---
+
+## 📚 참고 문서
+
+- `docs/API_SPECIFICATION.md` - 전체 API 명세서
+- `docs/CURRENT_STATUS.md` - 프로젝트 현재 상태
+- `docs/AUTH_ARCHITECTURE.md` - JWT 인증 아키텍처
+- Swagger 문서: http://localhost:3000/api
+
+---
+
+## 🚀 다음 단계
+
+- 카카오톡 txt 파일 업로드 UI
+- 파트너 관리 UI
+- 관계 설정 UI (10개 카테고리)
+- 실제 AI 답변 생성 (OpenAI 통합 후)

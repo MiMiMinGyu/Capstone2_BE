@@ -1,5 +1,7 @@
 # 데이터베이스 스키마 설계
 
+> 최종 업데이트: 2025-11-07
+
 ## 개요
 
 이 프로젝트는 **PostgreSQL + pgvector** 기반 RAG 시스템을 사용하여 관계별 맞춤형 말투 조정 AI 챗봇을 구현합니다.
@@ -84,13 +86,22 @@
 ## 테이블 구조
 
 ### 1. users
-사용자 테이블 (향후 다중 사용자 지원)
+사용자 테이블 (JWT 인증 지원)
 
 | 컬럼명 | 타입 | 제약조건 | 설명 |
 |--------|------|----------|------|
 | id | UUID | PK | 사용자 고유 ID |
 | username | VARCHAR(50) | UNIQUE NOT NULL | 사용자명 |
+| name | VARCHAR(100) | NULL | 사용자 이름 (선택) |
+| email | VARCHAR(255) | UNIQUE NOT NULL | 이메일 (로그인용) |
+| password_hash | VARCHAR(255) | NOT NULL | 해싱된 비밀번호 (bcrypt) |
+| refresh_token | VARCHAR(500) | NULL | JWT Refresh Token |
 | created_at | TIMESTAMP | DEFAULT NOW() | 생성 시간 |
+
+**인증 관련 컬럼:**
+- `email`: 로그인 시 사용되는 고유 이메일 주소
+- `password_hash`: bcrypt로 해싱된 비밀번호 (saltRounds: 10)
+- `refresh_token`: 30일 유효한 JWT Refresh Token (로그아웃 시 null)
 
 ### 2. partners
 대화 상대방 테이블
