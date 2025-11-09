@@ -5,6 +5,7 @@ import { ConfigModule } from '@nestjs/config';
 import { TelegramModule } from './modules/telegram/telegram.module';
 import { PrismaModule } from './prisma/prisma.module';
 import { AuthModule } from './modules/auth/auth.module';
+import { KakaoModule } from './modules/kakao/kakao.module';
 
 @Module({
   imports: [
@@ -14,6 +15,7 @@ import { AuthModule } from './modules/auth/auth.module';
     }),
     PrismaModule,
     AuthModule,
+    KakaoModule,
     TelegramModule,
   ],
   controllers: [AppController],

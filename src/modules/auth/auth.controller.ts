@@ -106,7 +106,7 @@ export class AuthController {
 
   @Get('me')
   @UseGuards(JwtAuthGuard)
-  @ApiBearerAuth()
+  @ApiBearerAuth('access-token')
   @ApiOperation({
     summary: '현재 사용자 정보 조회',
     description: 'JWT 토큰으로 인증된 사용자의 정보를 조회합니다.',
@@ -131,7 +131,7 @@ export class AuthController {
 
   @Post('logout')
   @UseGuards(JwtAuthGuard)
-  @ApiBearerAuth()
+  @ApiBearerAuth('access-token')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({
     summary: '로그아웃',
