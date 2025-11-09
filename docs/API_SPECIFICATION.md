@@ -11,11 +11,12 @@
 ## 📑 목차
 
 1. [인증 (Authentication)](#1-인증-authentication)
-2. [텔레그램 (Telegram)](#2-텔레그램-telegram)
-3. [파트너 (Partners)](#3-파트너-partners-미구현)
-4. [관계 (Relationships)](#4-관계-relationships-미구현)
-5. [공통 타입 정의](#5-공통-타입-정의)
-6. [에러 응답](#6-에러-응답)
+2. [카카오톡 (Kakao)](#2-카카오톡-kakao) ✨ **NEW!**
+3. [텔레그램 (Telegram)](#3-텔레그램-telegram)
+4. [파트너 (Partners)](#4-파트너-partners)
+5. [관계 (Relationships)](#5-관계-relationships-미구현)
+6. [공통 타입 정의](#6-공통-타입-정의)
+7. [에러 응답](#7-에러-응답)
 
 ---
 
@@ -176,9 +177,239 @@ Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
 
 ---
 
-## 2. 텔레그램 (Telegram)
+## 2. 카카오톡 (Kakao)
 
-### 2.1 받은 메시지 목록 조회
+### 2.1 카카오톡 txt 파일 업로드
+
+**POST** `/kakao/upload`
+
+카카오톡 내보내기 txt 파일을 업로드하여 메시지를 파싱하고 tone_samples에 저장합니다.
+
+**요청 Headers:**
+```
+Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+Content-Type: multipart/form-data
+```
+
+**요청 Body (multipart/form-data):**
+```typescript
+{
+  file: File,                      // 필수, 카카오톡 txt 파일
+  partner_name: string,            // 필수, 상대방 이름 (예: "홍길동", "친구들 외 2명")
+  relationship_category: string    // 필수, 관계 카테고리 (아래 목록 참조)
+}
+```
+
+**Relationship Categories:**
+- `FAMILY` - 가족
+- `CLOSE_FRIEND` - 친한 친구
+- `FRIEND` - 친구
+- `ACQUAINTANCE` - 지인
+- `COLLEAGUE` - 동료
+- `SENIOR` - 선배
+- `JUNIOR` - 후배
+- `BUSINESS` - 비즈니스 관계
+- `ROMANTIC` - 연인
+- `OTHER` - 기타
+
+**지원하는 카카오톡 형식:**
+```
+형식 1: 2024. 1. 15. 오후 3:45, 홍길동 : 안녕하세요
+형식 2: [이민규] [오후 1:03] 저는 아직 시간표도 못 짰습니다
+
+날짜 헤더: --------------- 2025년 8월 5일 화요일 ---------------
+```
+
+**응답 (201 Created):**
+```json
+{
+  "message": "카카오톡 파일 업로드 성공",
+  "partner": {
+    "id": "550e8400-e29b-41d4-a716-446655440000",
+    "name": "홍길동",
+    "platform": "KAKAO",
+    "external_id": null
+  },
+  "relationship": {
+    "id": "660e8400-e29b-41d4-a716-446655440000",
+    "user_id": "770e8400-e29b-41d4-a716-446655440000",
+    "partner_id": "550e8400-e29b-41d4-a716-446655440000",
+    "category": "CLOSE_FRIEND",
+    "created_at": "2025-11-07T12:00:00.000Z"
+  },
+  "statistics": {
+    "total_messages": 3142,
+    "my_messages_count": 1523,
+    "other_messages_count": 1619,
+    "unique_senders": ["이민규", "홍길동"]
+  },
+  "tone_samples_saved": 1523
+}
+```
+
+**에러 응답:**
+- `400 Bad Request` - 파일 없음, 파일에서 메시지를 찾을 수 없음
+- `400 Bad Request` - "사용자 이름과 일치하는 메시지가 없습니다. 회원가입 시 입력한 이름(현재: {user.name})과 카카오톡 대화에서 사용한 이름이 같은지 확인해주세요."
+- `400 Bad Request` - 잘못된 relationship_category
+- `401 Unauthorized` - 인증되지 않음
+
+**TypeScript 타입 정의:**
+```typescript
+interface UploadKakaoDto {
+  partner_name: string;
+  relationship_category:
+    | 'FAMILY'
+    | 'CLOSE_FRIEND'
+    | 'FRIEND'
+    | 'ACQUAINTANCE'
+    | 'COLLEAGUE'
+    | 'SENIOR'
+    | 'JUNIOR'
+    | 'BUSINESS'
+    | 'ROMANTIC'
+    | 'OTHER';
+}
+
+interface UploadKakaoResponse {
+  message: string;
+  partner: {
+    id: string;
+    name: string;
+    platform: 'KAKAO';
+    external_id: string | null;
+  };
+  relationship: {
+    id: string;
+    user_id: string;
+    partner_id: string;
+    category: string;
+    created_at: string;
+  };
+  statistics: {
+    total_messages: number;
+    my_messages_count: number;
+    other_messages_count: number;
+    unique_senders: string[];
+  };
+  tone_samples_saved: number;
+}
+```
+
+**프론트엔드 사용 예시 (Axios):**
+```typescript
+import axios from 'axios';
+
+async function uploadKakaoFile(
+  file: File,
+  partnerName: string,
+  relationshipCategory: string,
+  accessToken: string
+) {
+  const formData = new FormData();
+  formData.append('file', file);
+  formData.append('partner_name', partnerName);
+  formData.append('relationship_category', relationshipCategory);
+
+  const response = await axios.post<UploadKakaoResponse>(
+    'http://localhost:3000/kakao/upload',
+    formData,
+    {
+      headers: {
+        'Authorization': `Bearer ${accessToken}`,
+        'Content-Type': 'multipart/form-data',
+      },
+    }
+  );
+
+  return response.data;
+}
+```
+
+**중요 사항:**
+1. **사용자 이름 일치**: 회원가입 시 입력한 `name` 필드와 카카오톡 대화에서 표시되는 이름이 정확히 일치해야 합니다.
+   - 예: 카카오톡에서 "[이민규]"로 표시되면 회원가입 시 name을 "이민규"로 입력
+2. **Partner 자동 생성**: 같은 partner_name으로 여러 번 업로드하면 중복 생성될 수 있음 (향후 개선 예정)
+3. **임베딩 미생성**: 현재는 텍스트만 저장되며, 임베딩은 별도 API로 생성 필요 (Phase 3 예정)
+
+---
+
+### 2.2 Partner 목록 조회
+
+**GET** `/kakao/partners`
+
+현재 사용자가 업로드한 모든 Partner 목록을 조회합니다.
+
+**요청 Headers:**
+```
+Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+```
+
+**응답 (200 OK):**
+```json
+[
+  {
+    "id": "550e8400-e29b-41d4-a716-446655440000",
+    "name": "홍길동",
+    "platform": "KAKAO",
+    "external_id": null,
+    "relationships": [
+      {
+        "id": "660e8400-e29b-41d4-a716-446655440000",
+        "category": "CLOSE_FRIEND",
+        "created_at": "2025-11-07T12:00:00.000Z"
+      }
+    ],
+    "_count": {
+      "tone_samples": 1523
+    }
+  },
+  {
+    "id": "770e8400-e29b-41d4-a716-446655440000",
+    "name": "김철수",
+    "platform": "KAKAO",
+    "external_id": null,
+    "relationships": [
+      {
+        "id": "880e8400-e29b-41d4-a716-446655440000",
+        "category": "FRIEND",
+        "created_at": "2025-11-06T10:00:00.000Z"
+      }
+    ],
+    "_count": {
+      "tone_samples": 842
+    }
+  }
+]
+```
+
+**에러 응답:**
+- `401 Unauthorized` - 인증되지 않음
+
+**TypeScript 타입 정의:**
+```typescript
+interface Partner {
+  id: string;
+  name: string;
+  platform: 'KAKAO' | 'TELEGRAM';
+  external_id: string | null;
+  relationships: Array<{
+    id: string;
+    category: string;
+    created_at: string;
+  }>;
+  _count: {
+    tone_samples: number;
+  };
+}
+
+type GetPartnersResponse = Partner[];
+```
+
+---
+
+## 3. 텔레그램 (Telegram)
+
+### 3.1 받은 메시지 목록 조회
 
 **GET** `/telegram/messages`
 
@@ -214,7 +445,7 @@ Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
 
 ---
 
-### 2.2 AI 추천 답변 생성
+### 3.2 AI 추천 답변 생성
 
 **POST** `/telegram/recommendations`
 
@@ -244,7 +475,7 @@ Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
 
 ---
 
-### 2.3 선택한 답변 전송
+### 3.3 선택한 답변 전송
 
 **POST** `/telegram/reply`
 
@@ -268,7 +499,7 @@ Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
 
 ---
 
-### 2.4 메시지 직접 전송
+### 3.4 메시지 직접 전송
 
 **POST** `/telegram/send`
 
@@ -292,7 +523,7 @@ Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
 
 ---
 
-### 2.5 봇 상태 확인
+### 3.5 봇 상태 확인
 
 **GET** `/telegram/status`
 
@@ -308,7 +539,7 @@ Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
 
 ---
 
-### 2.6 실시간 메시지 알림 (SSE)
+### 3.6 실시간 메시지 알림 (SSE)
 
 **GET** `/telegram/events`
 
@@ -337,9 +568,9 @@ eventSource.onerror = (error) => {
 
 ---
 
-## 3. 파트너 (Partners) - 미구현
+## 4. 파트너 (Partners) - 미구현
 
-### 3.1 파트너 목록 조회 (예정)
+### 4.1 파트너 목록 조회 (예정)
 
 **GET** `/partners`
 
@@ -347,7 +578,7 @@ eventSource.onerror = (error) => {
 
 ---
 
-### 3.2 파트너 생성 (예정)
+### 4.2 파트너 생성 (예정)
 
 **POST** `/partners`
 
@@ -355,9 +586,9 @@ eventSource.onerror = (error) => {
 
 ---
 
-## 4. 관계 (Relationships) - 미구현
+## 5. 관계 (Relationships) - 미구현
 
-### 4.1 관계 목록 조회 (예정)
+### 5.1 관계 목록 조회 (예정)
 
 **GET** `/relationships`
 
@@ -365,7 +596,7 @@ eventSource.onerror = (error) => {
 
 ---
 
-### 4.2 관계 생성/수정 (예정)
+### 5.2 관계 생성/수정 (예정)
 
 **POST** `/relationships`
 
@@ -373,9 +604,9 @@ eventSource.onerror = (error) => {
 
 ---
 
-## 5. 공통 타입 정의
+## 6. 공통 타입 정의
 
-### 5.1 User
+### 6.1 User
 ```typescript
 interface User {
   id: string;                // UUID
@@ -386,7 +617,7 @@ interface User {
 }
 ```
 
-### 5.2 AuthResponse
+### 6.2 AuthResponse
 ```typescript
 interface AuthResponse {
   user: User;
@@ -395,7 +626,7 @@ interface AuthResponse {
 }
 ```
 
-### 5.3 TelegramUser
+### 6.3 TelegramUser
 ```typescript
 interface TelegramUser {
   id: number;
@@ -470,9 +701,9 @@ enum VibeType {
 
 ---
 
-## 6. 에러 응답
+## 7. 에러 응답
 
-### 6.1 표준 에러 형식
+### 7.1 표준 에러 형식
 ```json
 {
   "statusCode": 400,
@@ -481,7 +712,7 @@ enum VibeType {
 }
 ```
 
-### 6.2 HTTP 상태 코드
+### 7.2 HTTP 상태 코드
 
 | 코드 | 설명 |
 |------|------|
@@ -496,9 +727,9 @@ enum VibeType {
 
 ---
 
-## 7. 인증 흐름
+## 8. 인증 흐름
 
-### 7.1 로그인 및 토큰 저장
+### 8.1 로그인 및 토큰 저장
 ```typescript
 // 1. 로그인
 const loginResponse = await fetch('/auth/login', {
@@ -515,7 +746,7 @@ localStorage.setItem('refresh_token', refresh_token);
 localStorage.setItem('user', JSON.stringify(user));
 ```
 
-### 7.2 API 요청 시 토큰 사용
+### 8.2 API 요청 시 토큰 사용
 ```typescript
 // Axios 인터셉터 예시
 axios.interceptors.request.use((config) => {
@@ -527,7 +758,7 @@ axios.interceptors.request.use((config) => {
 });
 ```
 
-### 7.3 토큰 자동 갱신
+### 8.3 토큰 자동 갱신
 ```typescript
 axios.interceptors.response.use(
   (response) => response,
@@ -564,7 +795,7 @@ axios.interceptors.response.use(
 );
 ```
 
-### 7.4 로그아웃
+### 8.4 로그아웃
 ```typescript
 // 1. 서버에 로그아웃 요청
 await axios.post('/auth/logout');
@@ -580,15 +811,15 @@ window.location.href = '/login';
 
 ---
 
-## 8. 환경 변수
+## 9. 환경 변수
 
-### 8.1 프론트엔드 (.env)
+### 9.1 프론트엔드 (.env)
 ```
 VITE_API_BASE_URL=http://localhost:3000
 VITE_WS_URL=http://localhost:3000
 ```
 
-### 8.2 백엔드 (.env)
+### 9.2 백엔드 (.env)
 ```
 DATABASE_URL=postgresql://admin:admin1234@localhost:5433/chatbot_db
 JWT_SECRET=your-super-secret-key-change-in-production
@@ -598,7 +829,7 @@ OPENAI_API_KEY=sk-your-openai-api-key
 
 ---
 
-## 9. 주의사항
+## 10. 주의사항
 
 1. **CORS 설정**: 현재 모든 origin 허용 (개발 환경). 프로덕션에서는 특정 도메인만 허용 필요
 2. **토큰 보안**: localStorage 사용 시 XSS 공격 주의. httpOnly Cookie 사용 권장
@@ -608,14 +839,15 @@ OPENAI_API_KEY=sk-your-openai-api-key
 
 ---
 
-## 10. 다음 예정 기능
+## 11. 다음 예정 기능
 
-- `POST /kakao/upload` - 카카오톡 txt 파일 업로드
-- `POST /kakao/generate-embeddings` - 임베딩 배치 생성
-- `GET /partners` - 파트너 목록 조회
+- ~~`POST /kakao/upload` - 카카오톡 txt 파일 업로드~~ ✅ **구현 완료**
+- ~~`GET /kakao/partners` - Partner 목록 조회~~ ✅ **구현 완료**
+- `POST /kakao/generate-embeddings` - 임베딩 배치 생성 (OpenAI)
+- `GET /partners` - 파트너 목록 조회 (전체 파트너)
 - `GET /relationships` - 관계 설정 목록 조회
 - `POST /relationships` - 관계 생성/수정
-- `POST /telegram/generate-reply` - 실제 AI 답변 생성 (OpenAI)
+- `POST /telegram/generate-reply` - 실제 AI 답변 생성 (OpenAI + RAG)
 
 ---
 

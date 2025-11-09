@@ -1,5 +1,96 @@
 # 변경 이력
 
+## [2025-11-07 16:30] Kakao 모듈 완전 구현
+
+### 주요 변경사항
+
+#### 1. 카카오톡 파일 업로드 기능 완성
+**구현된 기능:**
+- ✅ `POST /kakao/upload` - 카카오톡 txt 파일 업로드 및 파싱
+- ✅ `GET /kakao/partners` - Partner 목록 조회
+- ✅ 두 가지 카카오톡 형식 지원
+- ✅ 사용자 이름 기반 메시지 필터링
+- ✅ Partner & Relationship 자동 생성
+- ✅ tone_samples 배치 저장
+
+#### 2. KakaoTxt Parser 구현
+**지원 형식:**
+- 형식 1: `2024. 1. 15. 오후 3:45, 홍길동 : 안녕하세요`
+- 형식 2: `[이민규] [오후 1:03] 저는 아직 시간표도 못 짰습니다`
+- 날짜 헤더: `--------------- 2025년 8월 5일 화요일 ---------------`
+
+**파싱 로직:**
+- 정규식 기반 메시지 추출
+- 날짜 헤더 자동 인식 및 추적
+- 시스템 메시지 (초대 메시지 등) 자동 필터링
+- 타임스탬프 생성 (오전/오후 → 24시간 변환)
+
+#### 3. 사용자 이름 기반 필터링
+**변경 사항:**
+- 기존: `"나"` 하드코딩 방식
+- 개선: JWT에서 `user.name` 가져와서 사용
+- 회원가입 시 `name` 필드 필수 (카카오톡 발신자 이름과 일치해야 함)
+
+**에러 처리:**
+- 사용자 정보 없음: "사용자 정보를 찾을 수 없습니다"
+- 이름 불일치: "이민규이(가) 보낸 메시지를 찾을 수 없습니다"
+- 명확한 에러 메시지로 UX 향상
+
+#### 4. Kakao 모듈 구조
+```
+src/modules/kakao/
+├── kakao.module.ts
+├── kakao.controller.ts
+├── kakao.service.ts
+├── dto/
+│   ├── upload-kakao.dto.ts  # partner_name, relationship_category
+│   └── index.ts
+└── parsers/
+    └── kakao-txt.parser.ts  # 두 가지 형식 파싱
+```
+
+#### 5. Swagger 개선
+**변경 사항:**
+- Bearer 인증 통합 완료 (`@ApiBearerAuth('access-token')`)
+- App Controller 숨김 처리 (`@ApiExcludeController()`)
+- 상세한 API 문서화 (request/response 예시)
+- Multipart 파일 업로드 스키마 정의
+
+#### 6. ESLint 설정 개선
+**추가된 규칙:**
+```javascript
+'@typescript-eslint/no-unused-vars': [
+  'warn',
+  {
+    argsIgnorePattern: '^_',
+    varsIgnorePattern: '^_',
+    caughtErrorsIgnorePattern: '^_',
+  },
+]
+```
+- 구조 분해에서 `_` 사용 시 경고 무시
+
+#### 7. 기술적 개선사항
+- TypeScript 타입 안정성 100% 유지
+- RequestWithUser 인터페이스 정의
+- 명확한 에러 처리 및 메시지
+- Prettier 포맷팅 적용
+
+### 파일 변경 사항
+- 추가: `src/modules/kakao/*` (6개 파일)
+- 수정: `src/app.module.ts` - KakaoModule 추가
+- 수정: `src/main.ts` - Bearer 인증 설정
+- 수정: `src/app.controller.ts` - Swagger 숨김
+- 수정: `eslint.config.mjs` - unused vars 규칙
+- 수정: `docs/CURRENT_STATUS.md` - 최신 상태 반영
+
+### 다음 단계
+- Phase 3: OpenAI 임베딩 생성 구현
+- Phase 4: 텔레그램 DB 저장
+- Phase 5: GPT 통합 (RAG 기반 답변)
+
+---
+
 ## [2025-11-07] Auth 모듈 완전 구현 및 최적화
 
 ### 주요 변경사항

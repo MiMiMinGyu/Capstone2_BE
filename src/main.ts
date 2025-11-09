@@ -23,6 +23,17 @@ async function bootstrap() {
     .setDescription('AI 답변 추천 서비스 API')
     .setVersion('1.0')
     .addTag('telegram', '텔레그램 봇 관련 API')
+    .addBearerAuth(
+      {
+        type: 'http',
+        scheme: 'bearer',
+        bearerFormat: 'JWT',
+        name: 'JWT',
+        description: 'Enter JWT token',
+        in: 'header',
+      },
+      'access-token', // This name here is important for matching up with @ApiBearerAuth() in your controllers
+    )
     .build();
 
   // Swagger 문서 생성 및 /api 경로에 설정
