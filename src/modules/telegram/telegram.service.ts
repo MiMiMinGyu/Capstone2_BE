@@ -3,20 +3,27 @@ import { ConfigService } from '@nestjs/config';
 import { Telegraf } from 'telegraf';
 import { TelegramMessage, SavedMessage, TelegramChat } from './interfaces';
 import { Subject, Observable } from 'rxjs';
+import { PrismaService } from '../../prisma/prisma.service';
 
 @Injectable()
 export class TelegramService implements OnModuleInit {
   private readonly logger = new Logger(TelegramService.name);
   private bot!: Telegraf;
 
-  // 인메모리 스토리지 - 받은 메시지 저장용
+  // 인메모리 스토리지 - 받은 메시지 저장용 (Phase 4에서 DB로 전환 예정)
   private receivedMessages: SavedMessage[] = [];
   private messageIdCounter = 1;
 
   // SSE를 위한 이벤트 스트림
   private messageEventSubject = new Subject<SavedMessage>();
 
-  constructor(private readonly config: ConfigService) {}
+  // 임시 user_id (추후 JWT에서 가져오도록 수정 필요)
+  private readonly TEMP_USER_ID = '75f7f032-ae95-48d6-8779-31518ed83bf4';
+
+  constructor(
+    private readonly config: ConfigService,
+    private readonly prisma: PrismaService,
+  ) {}
 
   onModuleInit() {
     const token = this.config.get<string>('TELEGRAM_BOT_TOKEN');
@@ -31,7 +38,7 @@ export class TelegramService implements OnModuleInit {
     this.bot = new Telegraf(token);
 
     // 텍스트 메시지 수신 시 처리 로직 (풀링 방식) - 자동 응답 제거, 저장만 수행
-    this.bot.on('text', (ctx) => {
+    this.bot.on('text', async (ctx) => {
       const message: TelegramMessage = {
         messageId: ctx.message?.message_id,
         from: ctx.from || undefined,
@@ -45,7 +52,7 @@ export class TelegramService implements OnModuleInit {
       );
 
       // 메시지 저장 (프론트엔드에서 조회할 수 있도록)
-      this.saveReceivedMessage(message);
+      await this.saveReceivedMessage(message);
 
       // 자동 응답하지 않음 - 사용자가 프론트엔드에서 선택해서 보낼 예정
       this.logger.log(`Message saved with ID: ${this.messageIdCounter - 1}`);
@@ -139,23 +146,74 @@ export class TelegramService implements OnModuleInit {
       : 'private';
   }
 
-  // 받은 메시지 저장 메서드
-  private saveReceivedMessage(message: TelegramMessage): void {
-    const savedMessage: SavedMessage = {
-      id: this.messageIdCounter++,
-      ...message,
-      isRead: false,
-      aiRecommendations: [], // AI 추천 답변들 저장
-      replied: false, // 답장 완료 여부
-    };
+  // 받은 메시지 저장 메서드 (DB 저장)
+  private async saveReceivedMessage(message: TelegramMessage): Promise<void> {
+    try {
+      const telegramId = message.from?.id?.toString();
+      if (!telegramId) {
+        this.logger.warn('메시지에 발신자 정보가 없습니다');
+        return;
+      }
 
-    this.receivedMessages.unshift(savedMessage); // 최신 메시지가 맨 앞에 오도록
-    this.logger.log(`Message saved: ${JSON.stringify(savedMessage)}`);
+      // 1. Partner upsert (telegram_id 기준)
+      const partner = await this.prisma.partner.upsert({
+        where: { telegram_id: telegramId },
+        create: {
+          name: message.from?.first_name || 'Unknown',
+          telegram_id: telegramId,
+        },
+        update: {},
+      });
 
-    // SSE 이벤트 발송 - 새 메시지 실시간 알림
-    this.logger.log(`🔥 SSE 이벤트 발송 중... messageId: ${savedMessage.id}`);
-    this.messageEventSubject.next(savedMessage);
-    this.logger.log(`✅ SSE 이벤트 발송 완료`);
+      this.logger.log(
+        `Partner 확인/생성 완료: ${partner.name} (${partner.id})`,
+      );
+
+      // 2. Conversation upsert
+      const conversation = await this.prisma.conversation.upsert({
+        where: {
+          user_id_partner_id: {
+            user_id: this.TEMP_USER_ID,
+            partner_id: partner.id,
+          },
+        },
+        create: {
+          user_id: this.TEMP_USER_ID,
+          partner_id: partner.id,
+        },
+        update: {
+          updated_at: new Date(),
+        },
+      });
+
+      // 3. Message 저장
+      const savedMessage = await this.prisma.message.create({
+        data: {
+          conversation_id: conversation.id,
+          role: 'user',
+          text: message.text || '',
+        },
+      });
+
+      this.logger.log(`메시지 DB 저장 완료: ${savedMessage.id}`);
+
+      // 4. 인메모리에도 저장 (기존 API 호환성)
+      const inMemoryMessage: SavedMessage = {
+        id: this.messageIdCounter++,
+        ...message,
+        isRead: false,
+        aiRecommendations: [],
+        replied: false,
+      };
+      this.receivedMessages.unshift(inMemoryMessage);
+
+      // 5. SSE 이벤트 발송
+      this.logger.log(`🔥 SSE 이벤트 발송 중...`);
+      this.messageEventSubject.next(inMemoryMessage);
+      this.logger.log(`✅ SSE 이벤트 발송 완료`);
+    } catch (error) {
+      this.logger.error(`메시지 저장 실패: ${error}`);
+    }
   }
 
   // 받은 메시지 목록 조회

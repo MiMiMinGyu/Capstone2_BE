@@ -47,16 +47,31 @@ docker ps
 # abc123def456   ankane/pgvector:v0.5.1  Up 10 seconds  0.0.0.0:5433->5432/tcp
 ```
 
-### 2단계: 로그 확인
+### 2단계: Prisma 마이그레이션 적용
 
 ```bash
-# 로그 실시간 확인
-docker-compose logs -f postgres
+# Prisma Client 생성
+npx prisma generate
 
-# 초기화 성공 메시지 확인:
-# ✅ "챗봇 데이터베이스 초기화가 완료되었습니다."
-# ✅ "확장: uuid-ossp, pgvector"
-# ✅ "관계 카테고리: 10개"
+# 마이그레이션 적용 (스키마 생성)
+npx prisma migrate dev
+
+# 샘플 데이터 생성
+npx prisma db seed
+```
+
+**출력 확인:**
+```
+✅ Test user created: testuser
+✅ Mingyu user created: 미민규
+✅ Partner created: 엄마
+✅ Partner created: 친구
+✅ Partner created: 팀장님
+✅ Relationship created: testuser - 엄마
+✅ Relationship created: testuser - 친구
+✅ Relationship created: testuser - 팀장님
+✅ Tone samples created: 6 samples
+🎉 Database seed completed successfully!
 ```
 
 ### 3단계: 데이터베이스 접속 테스트
@@ -76,53 +91,67 @@ SELECT * FROM users;  # 샘플 데이터 확인
 
 ## Prisma 설정
 
-### 1단계: 패키지 설치
+### 마이그레이션 관리
 
+이 프로젝트는 **Prisma 마이그레이션**을 사용하여 데이터베이스 스키마를 관리합니다.
+`init.sql` 파일은 더 이상 사용하지 않습니다.
+
+### 스키마 변경 워크플로우
+
+#### 1. 스키마 수정
+`prisma/schema.prisma` 파일을 수정합니다.
+
+#### 2. 마이그레이션 생성
 ```bash
-npm install
+npx prisma migrate dev --name 설명적인_이름
 ```
 
-### 2단계: Prisma Client 생성
+예시:
+```bash
+npx prisma migrate dev --name add_emoji_field_to_user
+```
+
+#### 3. 마이그레이션 적용 확인
+```
+✔ Generated Prisma Client
+✔ Applied migration: 20251110121714_add_emoji_field_to_user
+```
+
+#### 4. Git에 커밋
+```bash
+git add prisma/migrations prisma/schema.prisma
+git commit -m "feat: Add emoji field to User model"
+```
+
+### 주요 Prisma 명령어
 
 ```bash
+# Prisma Client 재생성 (스키마 변경 후)
 npx prisma generate
-```
 
-**출력 확인:**
-```
-✔ Generated Prisma Client (5.x.x) to ./node_modules/@prisma/client in XXms
-```
-
-### 3단계: 스키마 검증
-
-```bash
+# 스키마 검증
 npx prisma validate
+
+# 마이그레이션 상태 확인
+npx prisma migrate status
+
+# 샘플 데이터 생성
+npx prisma db seed
+
+# Prisma Studio (GUI) 실행
+npx prisma studio
 ```
 
-**출력 확인:**
-```
-✔ The schema at prisma/schema.prisma is valid
-```
-
-### 4단계: (옵션) 기존 DB와 동기화
-
-기존 데이터베이스 스키마를 Prisma 스키마로 가져오려면:
-
-```bash
-npx prisma db pull
-```
-
-**주의**: 이 명령어는 `prisma/schema.prisma`를 덮어쓰므로 신중히 사용하세요.
-
-### 5단계: Prisma Studio 실행 (GUI)
+### Prisma Studio 사용법
 
 ```bash
 npx prisma studio
 ```
 
 브라우저에서 `http://localhost:5555` 열림
-- 모든 테이블 확인 가능
+- 모든 테이블 시각적으로 확인
 - 데이터 CRUD 작업 가능
+- 관계(Relation) 탐색 가능
 
 ---
 
@@ -346,7 +375,48 @@ npm run build
 ```bash
 docker-compose down -v
 docker-compose up -d
-docker-compose logs -f
+npx prisma migrate dev
+```
+
+### 문제 4: "Migration ... failed to apply"
+
+**원인**: 데이터베이스 스키마가 마이그레이션 히스토리와 맞지 않음
+
+**해결 (개발 환경):**
+```bash
+# 경고: 모든 데이터가 삭제됩니다!
+docker-compose down -v
+docker-compose up -d
+npx prisma migrate dev
+npx prisma db seed
+```
+
+**해결 (프로덕션 환경):**
+```bash
+# 마이그레이션 상태 확인
+npx prisma migrate status
+
+# 마이그레이션 직접 적용
+npx prisma migrate deploy
+```
+
+### 문제 5: "users.name column does not exist" (협업자 환경)
+
+**원인**: `init.sql`과 `schema.prisma`가 동기화되지 않음 (구버전)
+
+**해결**:
+```bash
+# 최신 코드 pull
+git pull origin main
+
+# Docker 초기화
+docker-compose down -v
+docker-compose up -d
+
+# Prisma 마이그레이션 적용
+npx prisma generate
+npx prisma migrate dev
+npx prisma db seed
 ```
 
 ### 문제 4: "Port 5433 is already in use"

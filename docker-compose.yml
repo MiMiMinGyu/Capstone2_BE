@@ -33,8 +33,7 @@ services:
     volumes:
       # 데이터 영구 저장 (컨테이너 삭제 시에도 데이터 유지)
       - postgres_data:/var/lib/postgresql/data
-      # 초기화 SQL 스크립트 (처음 생성 시 자동 실행)
-      - ./init.sql:/docker-entrypoint-initdb.d/init.sql
+      # Prisma 마이그레이션으로 스키마 관리 (init.sql 제거)
 
     # 컨테이너 재시작 정책 (수동으로 중지하지 않는 한 항상 재시작)
     restart: unless-stopped

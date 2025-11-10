@@ -178,7 +178,9 @@ src/modules/kakao/
 - ❌ **Partner 관리**: 중복 체크 및 업데이트 로직 미구현
 
 ### 알려진 이슈
-- 텔레그램 봇이 서버 재시작 시 인메모리 메시지 손실
+- ⚠️ **텔레그램 메시지 손실 위험**: 서버 재시작 시 인메모리 메시지 손실
+  - 원인: Long Polling은 24시간만 메시지 보관, 한 번 수신하면 서버에서 삭제
+  - 해결: Phase 4에서 DB 저장으로 전환 예정
 - user_id 하드코딩 (텔레그램 서비스에서)
 - Partner 중복 생성 가능 (같은 이름으로 여러 번 업로드 시)
 
@@ -205,13 +207,35 @@ src/modules/kakao/
    - 이미 임베딩이 있는 항목은 스킵
    - 트랜잭션 처리
 
-### 🎯 Phase 4: 텔레그램 DB 저장 (우선순위: 중간)
-**목표**: 인메모리 → DB 영구 저장
+### 🎯 Phase 4: 텔레그램 DB 저장 + 채팅 목록 (우선순위: 높음) ⚡
+**목표**: 인메모리 → DB 영구 저장 + 채팅 목록 기능 구현
+
+**중요성:**
+- 텔레그램 Long Polling은 미수신 메시지를 24시간만 보관
+- 서버가 꺼져있을 때 받은 메시지는 24시간 내 서버 재시작 필요
+- 한 번 수신한 메시지는 텔레그램 서버에서 삭제됨
+- 인메모리 저장은 서버 재시작 시 데이터 손실 위험
 
 **구현 항목:**
-1. Partner 자동 매핑 (`telegram_id`)
-2. Conversation & Message 저장
-3. Relationship 확인 및 관계 설정 요청
+1. **Telegram Service DB 저장**
+   - Partner upsert (telegram_id 기준 중복 방지)
+   - Conversation upsert (user_id + partner_id 조합)
+   - Message 저장 (role: user/assistant)
+   - Relationship 확인 및 미설정 시 알림
+
+2. **채팅 목록 API**
+   - `GET /telegram/conversations` - 대화 상대 목록
+   - 각 상대별 마지막 메시지, 안 읽은 개수, 관계 정보 포함
+   - Partner의 telegram_id, from.id로 그룹핑
+
+3. **대화 히스토리 API**
+   - `GET /telegram/conversations/:partnerId/messages` - 특정 상대와의 대화 기록
+   - 페이지네이션 지원
+   - 시간 역순 정렬
+
+4. **Relationship 관리 기본 API**
+   - `POST /relationships` - 관계 설정
+   - `GET /relationships` - 내 관계 목록
 
 ### 🎯 Phase 5: GPT 통합 (우선순위: 중간)
 **목표**: 실제 AI 답변 생성
@@ -339,6 +363,16 @@ curl -X GET http://localhost:3000/kakao/partners \
 - 날짜 헤더 자동 인식
 - 사용자 이름 기반 필터링 (JWT의 user.name 사용)
 - 시스템 메시지 자동 필터링
+
+### 텔레그램 봇 (Long Polling)
+- **방식**: Long Polling (2-3초마다 서버가 텔레그램 서버에 확인)
+- **메시지 흐름**: 상대방 → 텔레그램 서버 → 내 로컬 서버 (API 경유)
+- **보관 정책**: 미수신 메시지는 텔레그램 서버에 24시간 보관
+- **주의사항**:
+  - 한 번 수신한 메시지는 텔레그램 서버에서 삭제됨
+  - 서버가 24시간 이상 꺼져있으면 메시지 손실
+  - 봇 계정은 일반 사용자 앱에서 대화 내용 확인 불가 (API 전용)
+- **현재 제한**: 인메모리 저장으로 서버 재시작 시 데이터 손실 (Phase 4에서 해결 예정)
 
 ### pgvector
 - PostgreSQL 확장

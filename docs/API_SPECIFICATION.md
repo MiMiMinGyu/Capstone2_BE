@@ -440,8 +440,13 @@ type GetPartnersResponse = Partner[];
 ]
 ```
 
-**참고:**
-- 현재 인메모리 저장 (서버 재시작 시 데이터 손실)
+**중요 사항:**
+1. **인메모리 저장**: 현재 서버 재시작 시 데이터 손실 (Phase 4에서 DB 저장으로 전환 예정)
+2. **텔레그램 봇 특성**:
+   - 봇으로 받은 메시지는 일반 텔레그램 앱에서 확인 불가 (API 전용)
+   - Long Polling 방식: 서버가 2-3초마다 텔레그램 서버에 새 메시지 확인
+   - 서버 꺼져있을 때 받은 메시지는 24시간 보관 (24시간 내 서버 재시작 필요)
+3. **채팅 목록 구현**: `from.id`로 그룹핑하여 대화 상대별 목록 생성 가능 (Phase 4에서 백엔드 API 추가 예정)
 
 ---
 
@@ -568,6 +573,87 @@ eventSource.onerror = (error) => {
 
 ---
 
+### 3.7 대화 목록 조회 (예정 - Phase 4) 🚧
+
+**GET** `/telegram/conversations`
+
+모든 대화 상대 목록을 조회합니다.
+
+**요청 Headers:**
+```
+Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+```
+
+**응답 (200 OK):**
+```json
+[
+  {
+    "partner": {
+      "id": "550e8400-e29b-41d4-a716-446655440000",
+      "name": "김철수",
+      "telegram_id": "987654321"
+    },
+    "relationship": {
+      "category": "FRIEND_CLOSE",
+      "politeness": "CASUAL",
+      "vibe": "PLAYFUL",
+      "emoji_level": 2
+    },
+    "lastMessage": {
+      "text": "안녕하세요!",
+      "timestamp": "2025-01-15T10:30:00.000Z",
+      "role": "user"
+    },
+    "unreadCount": 3,
+    "totalMessages": 25
+  }
+]
+```
+
+---
+
+### 3.8 대화 히스토리 조회 (예정 - Phase 4) 🚧
+
+**GET** `/telegram/conversations/:partnerId/messages`
+
+특정 상대와의 대화 기록을 조회합니다.
+
+**URL Parameters:**
+- `partnerId`: Partner UUID
+
+**Query Parameters:**
+- `limit`: 페이지당 메시지 수 (기본값: 50)
+- `offset`: 시작 위치 (기본값: 0)
+
+**응답 (200 OK):**
+```json
+{
+  "partner": {
+    "id": "550e8400-e29b-41d4-a716-446655440000",
+    "name": "김철수",
+    "telegram_id": "987654321"
+  },
+  "messages": [
+    {
+      "id": "uuid",
+      "role": "user",
+      "text": "안녕하세요!",
+      "created_at": "2025-01-15T10:30:00.000Z"
+    },
+    {
+      "id": "uuid",
+      "role": "assistant",
+      "text": "네, 안녕하세요!",
+      "created_at": "2025-01-15T10:31:00.000Z"
+    }
+  ],
+  "total": 25,
+  "hasMore": false
+}
+```
+
+---
+
 ## 4. 파트너 (Partners) - 미구현
 
 ### 4.1 파트너 목록 조회 (예정)
@@ -586,21 +672,107 @@ eventSource.onerror = (error) => {
 
 ---
 
-## 5. 관계 (Relationships) - 미구현
+## 5. 관계 (Relationships)
 
-### 5.1 관계 목록 조회 (예정)
+### 5.1 관계 목록 조회 (예정 - Phase 4) 🚧
 
 **GET** `/relationships`
 
-사용자의 관계 설정 목록을 조회합니다.
+사용자의 모든 관계 설정을 조회합니다.
+
+**요청 Headers:**
+```
+Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+```
+
+**응답 (200 OK):**
+```json
+[
+  {
+    "id": "uuid",
+    "partner": {
+      "id": "uuid",
+      "name": "김철수",
+      "telegram_id": "987654321"
+    },
+    "category": "FRIEND_CLOSE",
+    "politeness": "CASUAL",
+    "vibe": "PLAYFUL",
+    "emoji_level": 2,
+    "created_at": "2025-01-15T10:00:00.000Z",
+    "updated_at": "2025-01-15T10:00:00.000Z"
+  }
+]
+```
 
 ---
 
-### 5.2 관계 생성/수정 (예정)
+### 5.2 관계 생성 (예정 - Phase 4) 🚧
 
 **POST** `/relationships`
 
-새로운 관계를 생성하거나 수정합니다.
+새로운 관계를 설정합니다.
+
+**요청 Headers:**
+```
+Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+```
+
+**요청 Body:**
+```json
+{
+  "partner_id": "550e8400-e29b-41d4-a716-446655440000",
+  "category": "FRIEND_CLOSE",
+  "politeness": "CASUAL",
+  "vibe": "PLAYFUL",
+  "emoji_level": 2
+}
+```
+
+**Relationship Categories:**
+- `FAMILY_ELDER_CLOSE` - 부모/조부모/삼촌·이모 등 어른 가족
+- `FAMILY_SIBLING_ELDER` - 형/오빠/언니/누나
+- `FAMILY_SIBLING_YOUNGER` - 남/여 동생
+- `PARTNER_INTIMATE` - 연인/배우자
+- `FRIEND_CLOSE` - 친한 친구
+- `ACQUAINTANCE_CASUAL` - 가벼운 지인/처음 만난 또래
+- `WORK_SENIOR_FORMAL` - 상사/교수/연장자 고객/임원
+- `WORK_SENIOR_FRIENDLY` - 가까운 선배·상사/멘토
+- `WORK_PEER` - 동료/타팀 협업자/파트너 동급
+- `WORK_JUNIOR` - 후배/인턴/팀원
+
+**Politeness Levels:**
+- `FORMAL` - 격식 존댓말 (–습니다/–하십시오)
+- `POLITE` - 일반 존댓말 (–요)
+- `CASUAL` - 반말
+
+**Vibe Types:**
+- `CALM` - 차분
+- `DIRECT` - 직설
+- `PLAYFUL` - 장난
+- `CARING` - 배려
+
+**Emoji Level:** 0~3 (0: 없음, 3: 매우 많음)
+
+**응답 (201 Created):**
+```json
+{
+  "id": "uuid",
+  "user_id": "uuid",
+  "partner_id": "uuid",
+  "category": "FRIEND_CLOSE",
+  "politeness": "CASUAL",
+  "vibe": "PLAYFUL",
+  "emoji_level": 2,
+  "created_at": "2025-01-15T10:00:00.000Z",
+  "updated_at": "2025-01-15T10:00:00.000Z"
+}
+```
+
+**에러 응답:**
+- `400 Bad Request` - 잘못된 카테고리 또는 값
+- `409 Conflict` - 이미 관계가 설정됨
+- `401 Unauthorized` - 인증되지 않음
 
 ---
 
@@ -841,13 +1013,26 @@ OPENAI_API_KEY=sk-your-openai-api-key
 
 ## 11. 다음 예정 기능
 
-- ~~`POST /kakao/upload` - 카카오톡 txt 파일 업로드~~ ✅ **구현 완료**
-- ~~`GET /kakao/partners` - Partner 목록 조회~~ ✅ **구현 완료**
-- `POST /kakao/generate-embeddings` - 임베딩 배치 생성 (OpenAI)
-- `GET /partners` - 파트너 목록 조회 (전체 파트너)
+### Phase 3: OpenAI 임베딩 (진행 예정)
+- `POST /openai/generate-embeddings` - tone_samples 임베딩 배치 생성
+
+### Phase 4: 텔레그램 DB 저장 + 채팅 목록 (진행 중) 🚧
+- `GET /telegram/conversations` - 대화 상대 목록 조회
+- `GET /telegram/conversations/:partnerId/messages` - 대화 히스토리 조회
 - `GET /relationships` - 관계 설정 목록 조회
-- `POST /relationships` - 관계 생성/수정
-- `POST /telegram/generate-reply` - 실제 AI 답변 생성 (OpenAI + RAG)
+- `POST /relationships` - 관계 생성
+- 텔레그램 메시지 DB 영구 저장
+
+### Phase 5: GPT 통합 (진행 예정)
+- `POST /telegram/generate-reply` - 실제 AI 답변 생성 (GPT-4 + RAG)
+- RAG 기반 벡터 검색
+- Relationship 기반 프롬프트 생성
+
+### 완료된 기능 ✅
+- ~~`POST /auth/register`~~ - 회원가입
+- ~~`POST /auth/login`~~ - 로그인
+- ~~`POST /kakao/upload`~~ - 카카오톡 txt 파일 업로드
+- ~~`GET /kakao/partners`~~ - Partner 목록 조회
 
 ---
 
