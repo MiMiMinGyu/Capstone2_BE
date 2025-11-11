@@ -92,9 +92,10 @@
 |--------|------|----------|------|
 | id | UUID | PK | 사용자 고유 ID |
 | username | VARCHAR(50) | UNIQUE NOT NULL | 사용자명 |
-| name | VARCHAR(100) | NULL | 사용자 이름 (선택) |
+| name | VARCHAR(100) | NULL | 사용자 이름 (카카오톡 파싱용) |
 | email | VARCHAR(255) | UNIQUE NOT NULL | 이메일 (로그인용) |
 | password_hash | VARCHAR(255) | NOT NULL | 해싱된 비밀번호 (bcrypt) |
+| telegram_id | VARCHAR(100) | UNIQUE NULL | 텔레그램 봇 소유자 식별용 |
 | refresh_token | VARCHAR(500) | NULL | JWT Refresh Token |
 | created_at | TIMESTAMP | DEFAULT NOW() | 생성 시간 |
 
@@ -102,6 +103,9 @@
 - `email`: 로그인 시 사용되는 고유 이메일 주소
 - `password_hash`: bcrypt로 해싱된 비밀번호 (saltRounds: 10)
 - `refresh_token`: 30일 유효한 JWT Refresh Token (로그아웃 시 null)
+
+**텔레그램 관련 컬럼:**
+- `telegram_id`: 텔레그램 봇 소유자를 식별하는 ID (추후 기능, 현재는 미사용)
 
 ### 2. partners
 대화 상대방 테이블

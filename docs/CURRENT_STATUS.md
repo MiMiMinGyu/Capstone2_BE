@@ -1,6 +1,6 @@
 # 프로젝트 현재 상태
 
-> 최종 업데이트: 2025-11-07 16:30
+> 최종 업데이트: 2025-11-11 15:30
 
 ## ✅ 완료된 작업
 
@@ -9,10 +9,10 @@
   - 포트: 5433
   - 데이터베이스: `chatbot_db`
   - 사용자: `admin`
-  - `init.sql`로 9개 테이블 자동 생성
+  - **Prisma 마이그레이션**으로 스키마 관리 (init.sql 삭제됨)
   - pgvector 확장 설치 및 HNSW 인덱스 생성됨
 
-### 2. 데이터베이스 스키마
+### 2. 데이터베이스 스키마 (Prisma Migrations)
 **생성된 테이블 (9개):**
 ```sql
 users, partners, conversations, messages, relationships,
@@ -31,6 +31,7 @@ style_profiles, tone_samples, knowledge_chunks, message_embeddings
 - `name` (VARCHAR(100), NULLABLE) - **중요: 카카오톡 파싱에 사용됨**
 - `email` (VARCHAR(255), UNIQUE, NOT NULL)
 - `password_hash` (VARCHAR(255), NOT NULL)
+- `telegram_id` (VARCHAR(100), UNIQUE, NULLABLE) - **텔레그램 봇 소유자 식별용**
 - `refresh_token` (VARCHAR(500), NULLABLE)
 - `created_at` (TIMESTAMP, DEFAULT NOW())
 
@@ -112,10 +113,13 @@ src/modules/kakao/
 - 초대 메시지, 시스템 메시지 자동 필터링
 - 통계 정보 제공 (total_messages, my_messages_count, unique_senders)
 
-#### 3.4 Telegram 봇 연동 ✅
+#### 3.4 Telegram 봇 연동 ✅ (Phase 4 진행 중)
 - Long Polling 방식
-- 텍스트 메시지 수신 및 저장 (인메모리)
-- 메시지 전송 API
+- ✅ 텍스트 메시지 수신 및 **DB 저장** (Partner, Conversation, Message)
+- ✅ Partner 자동 생성 (telegram_id 기준 upsert)
+- ✅ User 식별 로직 (봇 소유자 = 서비스 회원)
+- ✅ 메시지 전송 API
+- 🔄 인메모리 저장 병행 (기존 API 호환성)
 - AI 추천 답변 생성 (임시 하드코딩)
 - 선택 답변 전송
 
@@ -143,28 +147,66 @@ src/modules/kakao/
 
 ---
 
-## 🔄 최근 업데이트 (2025-11-07)
+## 🔄 최근 업데이트 (2025-11-11)
 
-### Kakao 모듈 완성 ✅
+### AI 팀 FastAPI 코드 수령 및 통합 계획 수립 ✅
+**배경:**
+- ✅ AI 팀으로부터 GPT 프롬프트 로직이 구현된 FastAPI 코드 수령 ([app.py](../app.py))
+- ✅ FastAPI를 별도 서버로 운영하지 않고 NestJS에 직접 통합하기로 결정
+- ✅ GPT 통합 계획 문서 작성 완료 ([GPT_INTEGRATION_PLAN.md](./GPT_INTEGRATION_PLAN.md))
+
+**FastAPI 코드 분석:**
+- GPT 모델: `gpt-4o-mini` (저렴, 빠름)
+- Temperature: 0.7 (적당한 창의성)
+- Max Tokens: 60 (짧은 답변 강제)
+- 프롬프트 구조: 말투 프로필 + 수신자 정보 포함
+- 문제점: DB 미사용, 임베딩 없음, API 키 하드코딩
+
+**통합 방향:**
+1. **Phase 1**: OpenAI 모듈 생성 (기반 작업)
+2. **Phase 2**: 임베딩 생성 (tone_samples → pgvector)
+3. **Phase 3**: GPT Service 구현 (FastAPI 로직 포팅)
+4. **Phase 4**: Telegram 자동 답변 통합
+
+**AI 팀 요구사항 검증:**
+- ✅ `recent_context`: 최근 대화 N개 (구현됨)
+- ⏳ `similar_context`: 임베딩 유사도 검색 (Phase 2 필요)
+- ❓ `style_profile`: txt 파일 (구체적 방법 협의 필요)
+- ✅ `receiver`: 관계 정보 (relationships 테이블)
+
+---
+
+### Phase 4: Telegram DB 저장 구현 ✅
 **구현 완료:**
-- 카카오톡 txt 파일 업로드 API
-- 두 가지 메시지 형식 지원 (날짜 포함 형식 + 대괄호 형식)
-- 날짜 헤더 자동 인식 및 파싱
-- 사용자 이름 기반 필터링 (JWT의 user.name 사용)
-- Partner 및 Relationship 자동 생성
-- tone_samples 배치 저장 (관계 카테고리별)
-- 파싱 통계 정보 반환
+- ✅ Prisma 마이그레이션 방식 전환 (init.sql 삭제)
+- ✅ User 스키마에 telegram_id 필드 추가
+- ✅ Telegram 메시지 DB 저장 로직 구현
+  - Partner 자동 생성 (telegram_id 기준 upsert)
+  - Conversation 자동 생성 (user_id + partner_id)
+  - Message 저장 (role: user)
+- ✅ User vs Partner 아키텍처 명확화:
+  - **User**: 봇 소유자 (서비스 회원, JWT 인증)
+  - **Partner**: 메시지 발신자 (외부 텔레그램 사용자, telegram_id 식별)
+- ✅ SSE 이벤트 발송 (실시간 알림 유지)
+- ✅ 채팅 목록 API 구현 (`GET /telegram/conversations`)
+- ✅ 대화 히스토리 API 구현 (`GET /telegram/conversations/:partnerId/messages`)
 
-**코드 품질:**
-- TypeScript 타입 안정성 100%
-- ESLint 오류 0개
-- Prettier 포맷팅 적용
-- 명확한 에러 메시지 (사용자 이름 불일치 등)
+**E2E 테스트 완료:**
+- ✅ Telegram 메시지 수신 → Partner 자동 생성 확인
+- ✅ Conversation 자동 생성 확인
+- ✅ Messages 테이블에 저장 확인
+- ✅ 채팅 목록 API 응답 확인
+- ✅ 대화 히스토리 API 응답 확인 (페이지네이션 포함)
 
-**주요 개선 사항:**
-- 회원가입 시 `name` 필드 필수 (카카오톡 발신자 이름과 일치해야 함)
-- Swagger Bearer 인증 통합
-- App Controller 숨김 처리
+**변경 사항:**
+- init.sql 삭제 → Prisma 마이그레이션으로 단일 소스 관리
+- telegram.service.ts의 saveReceivedMessage 메서드 DB 저장 로직 추가
+- telegram.service.ts에 getConversations, getConversationMessages 메서드 추가
+- telegram.controller.ts에 GET /conversations, GET /conversations/:partnerId/messages 엔드포인트 추가
+- .env에 DEFAULT_USER_ID 추가 (환경변수 관리)
+
+**TODO:**
+- [ ] Relationship 관리 API 구현 (Telegram Partner용)
 
 ---
 
@@ -172,78 +214,87 @@ src/modules/kakao/
 
 ### 미구현 기능
 - ❌ **임베딩 생성**: OpenAI API 연동 미구현 (tone_samples의 embedding 컬럼 비어있음)
-- ❌ **텔레그램 메시지 DB 저장**: 현재 인메모리 저장만
-- ❌ **OpenAI GPT 통합**: AI 답변 하드코딩 (실제 GPT 호출 미구현)
-- ❌ **Relationship 관리**: CRUD API 미구현 (생성만 가능)
-- ❌ **Partner 관리**: 중복 체크 및 업데이트 로직 미구현
+- ❌ **OpenAI GPT 통합**: AI 팀 FastAPI 코드 수령, NestJS 통합 예정
+- ❌ **Relationship 관리 API**: 현재 카카오톡 업로드 시에만 생성 가능 (Telegram Partner용 필요)
 
 ### 알려진 이슈
-- ⚠️ **텔레그램 메시지 손실 위험**: 서버 재시작 시 인메모리 메시지 손실
-  - 원인: Long Polling은 24시간만 메시지 보관, 한 번 수신하면 서버에서 삭제
-  - 해결: Phase 4에서 DB 저장으로 전환 예정
-- user_id 하드코딩 (텔레그램 서비스에서)
-- Partner 중복 생성 가능 (같은 이름으로 여러 번 업로드 시)
+- ⚠️ **FastAPI OpenAI API 키 노출**: app.py에 하드코딩됨 → 즉시 폐기 및 환경변수로 관리 필요
+- ⚠️ **Partner 중복**: 같은 이름으로 카카오톡 업로드 시 중복 생성 가능
 
 ---
 
 ## 📋 다음 단계
 
-### 🎯 Phase 3: OpenAI 임베딩 생성 (우선순위: 높음)
-**목표**: tone_samples의 텍스트를 OpenAI API로 임베딩 생성 → DB 저장
+### 🎯 GPT 통합 로드맵 (우선순위: 최고) ⭐⭐⭐
+
+AI 팀 FastAPI 코드를 NestJS에 통합하는 전체 계획입니다.
+자세한 내용은 [GPT_INTEGRATION_PLAN.md](./GPT_INTEGRATION_PLAN.md) 참조.
+
+#### Phase 1: OpenAI 모듈 생성 (기반 작업)
+**목표**: OpenAI API 연동 기반 구축
 
 **구현 항목:**
-1. **OpenAI Module 생성**
-   - OpenAI SDK 설치 (`npm install openai`)
-   - 환경 변수 설정 (`OPENAI_API_KEY`)
+1. OpenAI SDK 설치 (`npm install openai`)
+2. 환경변수 설정 (`OPENAI_API_KEY`)
+3. OpenAI Module 생성 (`src/modules/openai/`)
+4. OpenaiService 구현
+   - `createEmbedding(text: string)` - 임베딩 생성
+   - `generateChatCompletion(messages)` - GPT 답변 생성
 
-2. **Embedding Service 구현**
-   - `POST /kakao/generate-embeddings` - 배치 임베딩 생성
-   - text-embedding-3-small 모델 사용 (1536차원)
-   - 배치 처리 (한 번에 100개씩)
-   - 진행 상황 반환
+**예상 소요 시간**: 30분
 
-3. **DB 저장 로직**
-   - Prisma raw query로 vector 타입 저장
-   - 이미 임베딩이 있는 항목은 스킵
-   - 트랜잭션 처리
-
-### 🎯 Phase 4: 텔레그램 DB 저장 + 채팅 목록 (우선순위: 높음) ⚡
-**목표**: 인메모리 → DB 영구 저장 + 채팅 목록 기능 구현
-
-**중요성:**
-- 텔레그램 Long Polling은 미수신 메시지를 24시간만 보관
-- 서버가 꺼져있을 때 받은 메시지는 24시간 내 서버 재시작 필요
-- 한 번 수신한 메시지는 텔레그램 서버에서 삭제됨
-- 인메모리 저장은 서버 재시작 시 데이터 손실 위험
+#### Phase 2: 임베딩 생성 (이전 Phase 3)
+**목표**: tone_samples의 텍스트를 임베딩으로 변환하여 DB 저장
 
 **구현 항목:**
-1. **Telegram Service DB 저장**
-   - Partner upsert (telegram_id 기준 중복 방지)
-   - Conversation upsert (user_id + partner_id 조합)
-   - Message 저장 (role: user/assistant)
-   - Relationship 확인 및 미설정 시 알림
+1. Embedding Service 메서드 추가
+   - `generateEmbeddings(texts: string[])` - 배치 임베딩
+2. Kakao Service에 임베딩 엔드포인트 추가
+   - `POST /kakao/generate-embeddings` - 전체 tone_samples 임베딩 생성
+3. DB 저장 로직 (Prisma raw query)
+4. 배치 처리 (100개씩, 에러 처리)
 
-2. **채팅 목록 API**
-   - `GET /telegram/conversations` - 대화 상대 목록
-   - 각 상대별 마지막 메시지, 안 읽은 개수, 관계 정보 포함
-   - Partner의 telegram_id, from.id로 그룹핑
+**예상 소요 시간**: 1시간
 
-3. **대화 히스토리 API**
-   - `GET /telegram/conversations/:partnerId/messages` - 특정 상대와의 대화 기록
-   - 페이지네이션 지원
-   - 시간 역순 정렬
-
-4. **Relationship 관리 기본 API**
-   - `POST /relationships` - 관계 설정
-   - `GET /relationships` - 내 관계 목록
-
-### 🎯 Phase 5: GPT 통합 (우선순위: 중간)
-**목표**: 실제 AI 답변 생성
+#### Phase 3: GPT Service 구현 (핵심)
+**목표**: FastAPI의 GPT 로직을 NestJS로 포팅
 
 **구현 항목:**
-1. GPT Service (RAG 기반 답변 생성)
-2. 벡터 검색으로 유사 메시지 찾기
-3. 프롬프트 엔지니어링
+1. GPT Module 생성 (`src/modules/gpt/`)
+2. GptService 메서드 구현
+   - `generateReply()` - 메인 메서드
+   - `getRecentContext()` - 최근 대화 조회
+   - `getSimilarContext()` - pgvector 유사도 검색
+   - `getStyleProfile()` - 말투 프로필 조회
+   - `getReceiverInfo()` - 관계 정보 조회
+   - `buildPrompt()` - 프롬프트 구성
+3. GPT Controller 구현
+   - `POST /gpt/generate` - 답변 생성 API
+4. DTO 및 인터페이스 정의
+
+**예상 소요 시간**: 2-3시간
+
+#### Phase 4: Telegram 자동 답변 통합
+**목표**: Telegram 메시지 수신 시 자동으로 GPT 답변 생성
+
+**구현 항목:**
+1. TelegramService에 GPT 연동
+   - 메시지 수신 → GPT 답변 생성 → SSE 전송
+2. 답변 전송 API 개선
+   - DB 기반 대화 내역 → GPT 호출 → 답변 생성
+
+**예상 소요 시간**: 1시간
+
+---
+
+### 🎯 Relationship 관리 API (우선순위: 중간)
+**목표**: Telegram Partner용 관계 설정 기능
+
+**구현 항목:**
+- `POST /relationships` - 관계 생성
+- `GET /relationships` - 관계 목록 조회
+- `PATCH /relationships/:id` - 관계 수정
+- `DELETE /relationships/:id` - 관계 삭제
 
 ---
 
@@ -324,6 +375,7 @@ curl -X GET http://localhost:3000/kakao/partners \
 ## 📚 참고 문서
 
 - `README.md` - 프로젝트 개요 및 빠른 시작
+- `docs/GPT_INTEGRATION_PLAN.md` - **[NEW!]** GPT 통합 계획 (FastAPI → NestJS)
 - `docs/DB_SCHEMA.md` - 데이터베이스 스키마 상세 설명
 - `docs/SETUP_GUIDE.md` - 설치 및 설정 가이드
 - `docs/API_SPECIFICATION.md` - API 명세서 (프론트엔드용)
@@ -331,6 +383,7 @@ curl -X GET http://localhost:3000/kakao/partners \
 - `docs/AUTH_ARCHITECTURE.md` - JWT 인증 아키텍처 가이드
 - `docs/IMPLEMENTATION_PLAN.md` - 전체 구현 계획
 - `docs/CHANGELOG.md` - 변경 이력
+- `app.py` - AI 팀 제공 FastAPI 코드 (참고용)
 
 ---
 
