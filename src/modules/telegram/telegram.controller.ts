@@ -1,4 +1,13 @@
-import { Body, Controller, Post, Get, Sse, MessageEvent } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Post,
+  Get,
+  Sse,
+  MessageEvent,
+  Param,
+  Query,
+} from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiResponse } from '@nestjs/swagger';
 import { Observable } from 'rxjs';
 import { map } from 'rxjs/operators';
@@ -24,12 +33,50 @@ export class TelegramController {
     return this.tg.sendMessage(body.chatId, body.text);
   }
 
-  // 받은 메시지 목록 조회 API
+  // 받은 메시지 목록 조회 API (인메모리)
   @Get('messages')
-  @ApiOperation({ summary: '받은 메시지 목록 조회' })
+  @ApiOperation({ summary: '받은 메시지 목록 조회 (인메모리)' })
   @ApiResponse({ status: 200, description: '받은 메시지 목록' })
   getReceivedMessages() {
     return this.tg.getReceivedMessages();
+  }
+
+  // 채팅 목록 조회 API (DB 기반)
+  @Get('conversations')
+  @ApiOperation({ summary: '대화 상대 목록 조회' })
+  @ApiResponse({
+    status: 200,
+    description: '대화 상대 목록 (마지막 메시지 포함)',
+  })
+  async getConversations() {
+    // TODO: JWT에서 userId 가져오기
+    const userId = '75f7f032-ae95-48d6-8779-31518ed83bf4';
+    return this.tg.getConversations(userId);
+  }
+
+  // 대화 히스토리 조회 API
+  @Get('conversations/:partnerId/messages')
+  @ApiOperation({ summary: '특정 상대와의 대화 기록 조회' })
+  @ApiResponse({
+    status: 200,
+    description: '대화 메시지 목록 (페이지네이션)',
+  })
+  async getConversationMessages(
+    @Param('partnerId') partnerId: string,
+    @Query('page') page?: string,
+    @Query('limit') limit?: string,
+  ) {
+    // TODO: JWT에서 userId 가져오기
+    const userId = '75f7f032-ae95-48d6-8779-31518ed83bf4';
+    const pageNum = parseInt(page || '1', 10);
+    const limitNum = parseInt(limit || '50', 10);
+
+    return this.tg.getConversationMessages(
+      userId,
+      partnerId,
+      pageNum,
+      limitNum,
+    );
   }
 
   // AI 추천 답변 생성 API

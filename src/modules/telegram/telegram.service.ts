@@ -17,13 +17,18 @@ export class TelegramService implements OnModuleInit {
   // SSE를 위한 이벤트 스트림
   private messageEventSubject = new Subject<SavedMessage>();
 
-  // 임시 user_id (추후 JWT에서 가져오도록 수정 필요)
-  private readonly TEMP_USER_ID = '75f7f032-ae95-48d6-8779-31518ed83bf4';
+  // 봇 소유자 user_id (환경변수에서 가져옴)
+  private readonly defaultUserId: string;
 
   constructor(
     private readonly config: ConfigService,
     private readonly prisma: PrismaService,
-  ) {}
+  ) {
+    this.defaultUserId = this.config.get<string>('DEFAULT_USER_ID') || '';
+    if (!this.defaultUserId) {
+      this.logger.error('DEFAULT_USER_ID is not set in environment variables');
+    }
+  }
 
   onModuleInit() {
     const token = this.config.get<string>('TELEGRAM_BOT_TOKEN');
@@ -155,30 +160,44 @@ export class TelegramService implements OnModuleInit {
         return;
       }
 
-      // 1. Partner upsert (telegram_id 기준)
+      // 1. User 찾기 (봇 소유자 - 서비스 회원)
+      const user = await this.prisma.user.findUnique({
+        where: { id: this.defaultUserId },
+      });
+
+      if (!user) {
+        this.logger.error(`User not found: ${this.defaultUserId}`);
+        return;
+      }
+
+      // 2. Partner upsert (telegram_id 기준 - 메시지 발신자)
+      // 처음 대화하는 사람도 자동으로 Partner 생성
       const partner = await this.prisma.partner.upsert({
         where: { telegram_id: telegramId },
         create: {
           name: message.from?.first_name || 'Unknown',
           telegram_id: telegramId,
         },
-        update: {},
+        update: {
+          // 이름이 변경되었을 수 있으므로 업데이트
+          name: message.from?.first_name || 'Unknown',
+        },
       });
 
       this.logger.log(
         `Partner 확인/생성 완료: ${partner.name} (${partner.id})`,
       );
 
-      // 2. Conversation upsert
+      // 3. Conversation upsert
       const conversation = await this.prisma.conversation.upsert({
         where: {
           user_id_partner_id: {
-            user_id: this.TEMP_USER_ID,
+            user_id: user.id,
             partner_id: partner.id,
           },
         },
         create: {
-          user_id: this.TEMP_USER_ID,
+          user_id: user.id,
           partner_id: partner.id,
         },
         update: {
@@ -186,7 +205,7 @@ export class TelegramService implements OnModuleInit {
         },
       });
 
-      // 3. Message 저장
+      // 4. Message 저장
       const savedMessage = await this.prisma.message.create({
         data: {
           conversation_id: conversation.id,
@@ -197,7 +216,7 @@ export class TelegramService implements OnModuleInit {
 
       this.logger.log(`메시지 DB 저장 완료: ${savedMessage.id}`);
 
-      // 4. 인메모리에도 저장 (기존 API 호환성)
+      // 5. 인메모리에도 저장 (기존 API 호환성)
       const inMemoryMessage: SavedMessage = {
         id: this.messageIdCounter++,
         ...message,
@@ -207,12 +226,14 @@ export class TelegramService implements OnModuleInit {
       };
       this.receivedMessages.unshift(inMemoryMessage);
 
-      // 5. SSE 이벤트 발송
+      // 6. SSE 이벤트 발송
       this.logger.log(`🔥 SSE 이벤트 발송 중...`);
       this.messageEventSubject.next(inMemoryMessage);
       this.logger.log(`✅ SSE 이벤트 발송 완료`);
     } catch (error) {
-      this.logger.error(`메시지 저장 실패: ${error}`);
+      this.logger.error(
+        `메시지 저장 실패: ${error instanceof Error ? error.message : String(error)}`,
+      );
     }
   }
 
@@ -285,5 +306,96 @@ export class TelegramService implements OnModuleInit {
   // SSE 스트림 제공 메서드
   getMessageEventStream(): Observable<SavedMessage> {
     return this.messageEventSubject.asObservable();
+  }
+
+  // 채팅 목록 조회 (대화 상대 목록)
+  async getConversations(userId: string) {
+    const conversations = await this.prisma.conversation.findMany({
+      where: { user_id: userId },
+      include: {
+        partner: true,
+        messages: {
+          orderBy: { created_at: 'desc' },
+          take: 1, // 마지막 메시지만
+        },
+      },
+      orderBy: { updated_at: 'desc' },
+    });
+
+    return conversations.map((conv) => ({
+      partner_id: conv.partner.id,
+      partner_name: conv.partner.name,
+      partner_telegram_id: conv.partner.telegram_id,
+      last_message: conv.messages[0]?.text || null,
+      last_message_time: conv.messages[0]?.created_at || conv.created_at,
+      updated_at: conv.updated_at,
+    }));
+  }
+
+  // 대화 히스토리 조회 (페이지네이션)
+  async getConversationMessages(
+    userId: string,
+    partnerId: string,
+    page: number,
+    limit: number,
+  ) {
+    // Conversation 찾기
+    const conversation = await this.prisma.conversation.findUnique({
+      where: {
+        user_id_partner_id: {
+          user_id: userId,
+          partner_id: partnerId,
+        },
+      },
+      include: {
+        partner: true,
+      },
+    });
+
+    if (!conversation) {
+      return {
+        partner: null,
+        messages: [],
+        pagination: {
+          page,
+          limit,
+          total: 0,
+          totalPages: 0,
+        },
+      };
+    }
+
+    // 메시지 개수 조회
+    const totalMessages = await this.prisma.message.count({
+      where: { conversation_id: conversation.id },
+    });
+
+    // 메시지 조회 (페이지네이션)
+    const messages = await this.prisma.message.findMany({
+      where: { conversation_id: conversation.id },
+      orderBy: { created_at: 'desc' },
+      skip: (page - 1) * limit,
+      take: limit,
+    });
+
+    return {
+      partner: {
+        id: conversation.partner.id,
+        name: conversation.partner.name,
+        telegram_id: conversation.partner.telegram_id,
+      },
+      messages: messages.map((msg) => ({
+        id: msg.id,
+        role: msg.role,
+        text: msg.text,
+        created_at: msg.created_at,
+      })),
+      pagination: {
+        page,
+        limit,
+        total: totalMessages,
+        totalPages: Math.ceil(totalMessages / limit),
+      },
+    };
   }
 }

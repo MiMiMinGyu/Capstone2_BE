@@ -1,5 +1,148 @@
 # 변경 이력
 
+## [2025-11-11 15:30] AI 팀 FastAPI 코드 수령 및 통합 계획 수립
+
+### 주요 변경사항
+
+#### 1. AI 팀 FastAPI 코드 분석
+**수령 파일:**
+- `app.py` - FastAPI 기반 GPT 프롬프트 로직 구현
+
+**분석 결과:**
+- GPT 모델: `gpt-4o-mini` (저렴, 빠름)
+- Temperature: 0.7, Max Tokens: 60 (짧은 답변)
+- 프롬프트: 말투 프로필 + 수신자 정보 포함
+- **문제점**: DB 미사용, 임베딩 없음, API 키 하드코딩
+
+#### 2. 통합 계획 수립
+**결정 사항:**
+- FastAPI를 별도 서버로 운영하지 않음
+- NestJS에 직접 통합하기로 결정
+
+**이유:**
+1. DB 데이터가 이미 NestJS에 있음
+2. 임베딩 생성도 NestJS에서 진행 예정
+3. Telegram 연동도 NestJS에 구현됨
+4. 별도 서버 운영 시 복잡도 증가
+
+#### 3. GPT 통합 계획 문서 작성
+**새로 생성된 문서:**
+- `docs/GPT_INTEGRATION_PLAN.md` - 완벽한 통합 계획서 (600줄)
+
+**포함 내용:**
+- FastAPI 코드 상세 분석
+- AI 팀 요구사항 vs 현재 구현 비교
+- 통합 아키텍처 설계
+- Phase별 구현 계획 (Phase 1-4)
+- 예상 소요 시간 및 비용 분석
+- 코드 예제 (TypeScript)
+
+#### 4. AI 팀 요구사항 검증
+**요구사항 항목:**
+```
+GPT 프롬프트 입력 = {
+  recent_context: 최근 대화 5개 (무조건 포함),
+  similar_context: 임베딩 기반 유사 발화 top 3 (맥락 참고용),
+  style_profile: 사용자 고유 말투 프로필 (txt),
+  receiver: 상대방 정보 (존댓말/반말 등)
+}
+```
+
+**구현 상태:**
+- ✅ `recent_context`: 구현됨 (getConversationMessages)
+- ⏳ `similar_context`: Phase 2 필요 (임베딩 생성)
+- ❓ `style_profile`: AI 팀과 협의 필요 (txt 파일 방법 불명확)
+- ✅ `receiver`: 구현됨 (relationships 테이블)
+
+#### 5. 문서 업데이트
+**수정된 문서:**
+- `docs/CURRENT_STATUS.md` - AI 팀 코드 수령 및 통합 계획 반영
+- `docs/CHANGELOG.md` - 현재 파일 업데이트
+
+**추가된 섹션:**
+- GPT 통합 로드맵 (Phase 1-4)
+- FastAPI 코드 분석 결과
+- AI 팀 요구사항 검증
+
+### 다음 작업 (Phase 1)
+- [ ] OpenAI SDK 설치 (`npm install openai`)
+- [ ] 환경변수 설정 (`OPENAI_API_KEY`)
+- [ ] OpenAI Module 생성
+- [ ] OpenaiService 구현 (임베딩, GPT)
+
+---
+
+## [2025-11-11 14:00] Phase 4: Telegram DB 저장 구현 + Prisma 마이그레이션 전환
+
+### 주요 변경사항
+
+#### 1. Prisma 마이그레이션 방식 전환
+**변경 사항:**
+- ❌ 삭제: `init.sql` (더 이상 사용하지 않음)
+- ✅ 채택: Prisma 마이그레이션으로 단일 소스 관리
+- `docker-compose.yml`에서 init.sql 마운트 제거
+
+**이유:**
+- 스키마 동기화 문제 해결 (init.sql vs schema.prisma)
+- 버전 관리 및 협업 편의성 향상
+- 데이터베이스 변경 이력 추적
+
+#### 2. User 스키마에 telegram_id 추가
+**변경 사항:**
+- `users` 테이블에 `telegram_id` VARCHAR(100) UNIQUE 컬럼 추가
+- 마이그레이션: `20251111103555_add_telegram_id_to_user`
+
+**사용 목적:**
+- 텔레그램 봇 소유자 식별 (추후 기능)
+- 현재는 TEMP_USER_ID로 하드코딩 상태
+
+#### 3. Telegram 메시지 DB 저장 로직 구현
+**구현 파일:**
+- `src/modules/telegram/telegram.service.ts` - `saveReceivedMessage` 메서드 수정
+
+**구현 내용:**
+```typescript
+// 1. Partner upsert (telegram_id 기준)
+// 2. User 조회 (현재: TEMP_USER_ID, 추후: 환경변수)
+// 3. Conversation upsert (user_id + partner_id)
+// 4. Message 저장 (role: user)
+// 5. 인메모리 저장 (기존 API 호환성)
+// 6. SSE 이벤트 발송
+```
+
+**아키텍처 명확화:**
+- **User**: 봇 소유자 (서비스 회원, JWT 인증)
+- **Partner**: 메시지 발신자 (외부 텔레그램 사용자, telegram_id 식별)
+
+#### 4. 문서 업데이트
+**수정된 문서:**
+- `docs/SETUP_GUIDE.md` - Prisma 마이그레이션 워크플로우 추가
+- `docs/CURRENT_STATUS.md` - Phase 4 진행 상황 반영
+- `docs/CHANGELOG.md` - 변경 이력 기록 (현재 파일)
+
+**추가된 섹션:**
+- Prisma 마이그레이션 관리 방법
+- 스키마 변경 워크플로우
+- 트러블슈팅 가이드
+
+### 파일 변경 사항
+- ❌ 삭제: `init.sql`
+- ✅ 수정: `docker-compose.yml` - init.sql 마운트 제거
+- ✅ 수정: `prisma/schema.prisma` - telegram_id 필드 추가
+- ✅ 추가: `prisma/migrations/20251111103555_add_telegram_id_to_user/`
+- ✅ 수정: `src/modules/telegram/telegram.service.ts` - DB 저장 로직
+- ✅ 수정: `docs/SETUP_GUIDE.md`
+- ✅ 수정: `docs/CURRENT_STATUS.md`
+- ✅ 수정: `docs/CHANGELOG.md`
+
+### TODO (다음 단계)
+- [ ] TEMP_USER_ID를 환경변수로 대체
+- [ ] 채팅 목록 API 구현 (`GET /telegram/conversations`)
+- [ ] 대화 히스토리 API 구현 (`GET /telegram/conversations/:partnerId/messages`)
+- [ ] Relationship 관리 API 구현
+
+---
+
 ## [2025-11-07 16:30] Kakao 모듈 완전 구현
 
 ### 주요 변경사항
