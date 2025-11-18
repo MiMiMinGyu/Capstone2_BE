@@ -153,4 +153,38 @@ export class KakaoController {
     const userId = req.user.id;
     return this.kakaoService.getPartners(userId);
   }
+
+  @Post('generate-embeddings')
+  @ApiOperation({
+    summary: 'Tone Samples 임베딩 생성',
+    description:
+      '사용자의 모든 tone_samples에 대해 OpenAI 임베딩을 생성하여 DB에 저장합니다. 배치 처리(100개씩)로 진행됩니다.',
+  })
+  @ApiResponse({
+    status: HttpStatus.OK,
+    description: '임베딩 생성 완료',
+    schema: {
+      type: 'object',
+      properties: {
+        total: {
+          type: 'number',
+          description: '임베딩 생성 대상 tone sample 총 개수',
+        },
+        processed: {
+          type: 'number',
+          description: '성공적으로 처리된 개수',
+        },
+        failed: { type: 'number', description: '실패한 개수' },
+        message: { type: 'string', description: '처리 결과 메시지' },
+      },
+    },
+  })
+  @ApiResponse({
+    status: HttpStatus.UNAUTHORIZED,
+    description: '인증 실패',
+  })
+  async generateEmbeddings(@Request() req: RequestWithUser) {
+    const userId = req.user.id;
+    return this.kakaoService.generateEmbeddings(userId);
+  }
 }

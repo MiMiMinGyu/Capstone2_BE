@@ -1,6 +1,7 @@
-import { Injectable, BadRequestException } from '@nestjs/common';
+import { Injectable, BadRequestException, Logger } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import { KakaoTxtParser } from './parsers/kakao-txt.parser';
+import { OpenaiService } from '../openai/openai.service';
 import {
   RelationshipCategory,
   PolitenessLevel,
@@ -9,9 +10,12 @@ import {
 
 @Injectable()
 export class KakaoService {
+  private readonly logger = new Logger(KakaoService.name);
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly parser: KakaoTxtParser,
+    private readonly openai: OpenaiService,
   ) {}
 
   /**
@@ -197,5 +201,103 @@ export class KakaoService {
     };
 
     return emojiMap[category];
+  }
+
+  /**
+   * 사용자의 모든 tone_samples에 대해 임베딩을 생성합니다
+   * @param userId 사용자 ID
+   * @returns 처리 결과 통계
+   */
+  async generateEmbeddings(userId: string) {
+    this.logger.log(`Starting embedding generation for user: ${userId}`);
+
+    // 1. 임베딩이 없는 tone_samples 조회 (raw query 사용)
+    const toneSamples = await this.prisma.$queryRaw<
+      Array<{ id: string; text: string }>
+    >`
+      SELECT id, text
+      FROM tone_samples
+      WHERE user_id = ${userId}::uuid
+        AND embedding IS NULL
+    `;
+
+    if (toneSamples.length === 0) {
+      this.logger.log('No tone samples found without embeddings');
+      return {
+        total: 0,
+        processed: 0,
+        failed: 0,
+        message: '임베딩 생성이 필요한 tone sample이 없습니다.',
+      };
+    }
+
+    this.logger.log(
+      `Found ${toneSamples.length} tone samples without embeddings`,
+    );
+
+    const BATCH_SIZE = 100; // OpenAI API 제한 고려
+    let processed = 0;
+    let failed = 0;
+
+    // 2. 배치 단위로 임베딩 생성
+    for (let i = 0; i < toneSamples.length; i += BATCH_SIZE) {
+      const batch = toneSamples.slice(i, i + BATCH_SIZE);
+      this.logger.log(
+        `Processing batch ${Math.floor(i / BATCH_SIZE) + 1}/${Math.ceil(toneSamples.length / BATCH_SIZE)} (${batch.length} items)`,
+      );
+
+      try {
+        // 배치로 임베딩 생성
+        const texts = batch.map((sample) => sample.text);
+        const { embeddings, totalTokens } =
+          await this.openai.createEmbeddings(texts);
+
+        this.logger.log(
+          `Generated ${embeddings.length} embeddings, used ${totalTokens} tokens`,
+        );
+
+        // 3. DB에 저장 (Prisma raw query - vector 타입 지원)
+        for (let j = 0; j < batch.length; j++) {
+          try {
+            const sample = batch[j];
+            const embedding = embeddings[j];
+
+            // PostgreSQL vector 형식: '[1,2,3]' 형태의 문자열
+            const vectorString = `[${embedding.join(',')}]`;
+
+            await this.prisma.$executeRaw`
+              UPDATE tone_samples
+              SET embedding = ${vectorString}::vector
+              WHERE id = ${sample.id}::uuid
+            `;
+
+            processed++;
+          } catch (error) {
+            this.logger.error(
+              `Failed to save embedding for sample ${batch[j].id}`,
+              error,
+            );
+            failed++;
+          }
+        }
+      } catch (error) {
+        this.logger.error(
+          `Failed to process batch starting at index ${i}`,
+          error,
+        );
+        failed += batch.length;
+      }
+    }
+
+    this.logger.log(
+      `Embedding generation completed. Processed: ${processed}, Failed: ${failed}`,
+    );
+
+    return {
+      total: toneSamples.length,
+      processed,
+      failed,
+      message: `임베딩 생성 완료: ${processed}개 성공, ${failed}개 실패`,
+    };
   }
 }
