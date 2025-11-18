@@ -1,5 +1,149 @@
 # 변경 이력
 
+## [2025-11-12 00:35] Phase 1 & 2: OpenAI 모듈 및 임베딩 생성 완료
+
+### 주요 변경사항
+
+#### 1. OpenAI 모듈 생성 (Phase 1) ✅
+**구현 파일:**
+- `src/modules/openai/openai.module.ts` - OpenAI 모듈 정의
+- `src/modules/openai/openai.service.ts` - OpenAI API 래퍼
+- `src/modules/openai/interfaces/openai.interface.ts` - 타입 정의
+
+**구현 메서드:**
+```typescript
+async createEmbedding(text: string): Promise<EmbeddingResponse>
+async createEmbeddings(texts: string[]): Promise<{ embeddings: number[][], totalTokens: number }>
+async generateChatCompletion(messages: ChatMessage[], options?): Promise<ChatCompletionResponse>
+```
+
+**환경변수:**
+- `OPENAI_API_KEY` - AI 팀 제공 API 키 사용 (.env)
+
+#### 2. 임베딩 생성 구현 (Phase 2) ✅
+**구현 내용:**
+- `POST /kakao/generate-embeddings` 엔드포인트 추가
+- KakaoService에 `generateEmbeddings(userId)` 메서드 구현
+- 배치 처리 (100개씩, OpenAI API 제한 고려)
+- Prisma raw query로 vector 타입 처리
+- 에러 핸들링 및 로깅
+
+**DB 저장 로직:**
+```typescript
+// PostgreSQL vector 형식: '[1,2,3]' 형태의 문자열
+const vectorString = `[${embedding.join(',')}]`;
+await this.prisma.$executeRaw`
+  UPDATE tone_samples
+  SET embedding = ${vectorString}::vector
+  WHERE id = ${sample.id}::uuid
+`;
+```
+
+#### 3. PostgreSQL 벡터 인덱스 이슈 해결 ⚠️→✅
+**문제 발생:**
+- 임베딩 생성 시 523개 모두 실패 (0 processed, 523 failed)
+- 에러: `index row size 6160 exceeds btree version 4 maximum 2704`
+- 원인: B-tree 인덱스는 최대 2704 바이트까지만 처리 가능
+- 1536차원 float 벡터 = 약 6160 바이트 → B-tree 한계 초과
+
+**해결 방법:**
+1. **B-tree 인덱스 제거**
+   - Migration: `20251111151827_remove_btree_indexes_on_vectors`
+   - tone_samples, knowledge_chunks, message_embeddings의 embedding 인덱스 삭제
+
+2. **벡터 타입에 차원 명시**
+   - `vector` → `vector(1536)` 으로 변경
+   - Prisma schema 업데이트
+
+3. **HNSW 인덱스 생성**
+   - Migration: `20251111151900_add_hnsw_indexes_on_vectors`
+   - HNSW (Hierarchical Navigable Small World) 알고리즘 사용
+   - 고차원 벡터 검색에 최적화
+   - 코사인 유사도 검색 지원 (`vector_cosine_ops`)
+   - 파라미터: `m=16, ef_construction=64`
+
+**마이그레이션 SQL:**
+```sql
+-- B-tree 인덱스 제거
+DROP INDEX "public"."idx_tone_samples_embedding";
+DROP INDEX "public"."idx_knowledge_chunks_embedding";
+DROP INDEX "public"."idx_message_embeddings_embedding";
+
+-- 벡터 차원 명시
+ALTER TABLE tone_samples ALTER COLUMN embedding TYPE vector(1536);
+ALTER TABLE knowledge_chunks ALTER COLUMN embedding TYPE vector(1536);
+ALTER TABLE message_embeddings ALTER COLUMN embedding TYPE vector(1536);
+
+-- HNSW 인덱스 생성
+CREATE INDEX idx_tone_samples_embedding
+ON "public"."tone_samples"
+USING hnsw (embedding vector_cosine_ops)
+WITH (m = 16, ef_construction = 64);
+```
+
+#### 4. E2E 테스트 성공 ✅
+**테스트 결과:**
+- 523개 tone_samples 임베딩 생성 성공
+- 성공률: 100% (523 processed, 0 failed)
+- 처리 시간: 약 38초 (6개 배치)
+
+**토큰 사용량:**
+```
+Batch 1: 1,870 tokens (100 items)
+Batch 2: 1,881 tokens (100 items)
+Batch 3: 1,708 tokens (100 items)
+Batch 4: 1,908 tokens (100 items)
+Batch 5: 1,697 tokens (100 items)
+Batch 6:   288 tokens (23 items)
+─────────────────────────────────
+총합:    9,352 tokens (523 items)
+```
+
+**비용 분석:**
+- 모델: `text-embedding-3-small`
+- 가격: $0.02 / 1M tokens
+- 실제 비용: $0.000187 (약 ₩0.26)
+- 평균: 17.9 tokens/message
+
+#### 5. 파일 변경 사항
+**새로 생성:**
+- `src/modules/openai/openai.module.ts`
+- `src/modules/openai/openai.service.ts`
+- `src/modules/openai/interfaces/openai.interface.ts`
+- `prisma/migrations/20251111151827_remove_btree_indexes_on_vectors/`
+- `prisma/migrations/20251111151900_add_hnsw_indexes_on_vectors/`
+
+**수정:**
+- `src/modules/kakao/kakao.module.ts` - OpenaiModule import
+- `src/modules/kakao/kakao.service.ts` - generateEmbeddings 메서드 추가
+- `src/modules/kakao/kakao.controller.ts` - POST /generate-embeddings 추가
+- `src/app.module.ts` - OpenaiModule 추가
+- `prisma/schema.prisma` - vector → vector(1536), B-tree 인덱스 제거
+- `.env` - OPENAI_API_KEY 추가
+- `docs/CURRENT_STATUS.md` - Phase 1 & 2 완료 반영
+- `docs/CHANGELOG.md` - 현재 항목 추가
+
+#### 6. 기술적 개선사항
+- OpenAI SDK 공식 라이브러리 사용
+- 배치 처리로 API 호출 최적화 (100개씩)
+- 에러 핸들링: 각 샘플별 try-catch
+- 상세한 로깅 (배치별 진행 상황, 토큰 사용량)
+- PostgreSQL pgvector 최적화 (HNSW 인덱스)
+
+### 다음 단계 (Phase 3)
+- [ ] GPT Module 생성 (`src/modules/gpt/`)
+- [ ] GptService 구현 (FastAPI 로직 포팅)
+  - `getRecentContext()` - 최근 대화 조회
+  - `getSimilarContext()` - pgvector 유사도 검색
+  - `getStyleProfile()` - 말투 프로필 조회
+  - `getReceiverInfo()` - 관계 정보 조회
+  - `buildPrompt()` - 프롬프트 구성
+  - `generateReply()` - 메인 메서드
+- [ ] POST /gpt/generate 엔드포인트 구현
+- [ ] DTO 및 인터페이스 정의
+
+---
+
 ## [2025-11-11 15:30] AI 팀 FastAPI 코드 수령 및 통합 계획 수립
 
 ### 주요 변경사항

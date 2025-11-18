@@ -147,7 +147,44 @@ src/modules/kakao/
 
 ---
 
-## 🔄 최근 업데이트 (2025-11-11)
+## 🔄 최근 업데이트 (2025-11-12)
+
+### Phase 1 & 2: OpenAI 모듈 및 임베딩 생성 완료 ✅ **NEW!**
+**구현 완료:**
+- ✅ OpenAI SDK 설치 및 모듈 생성 (`src/modules/openai/`)
+- ✅ OpenaiService 구현
+  - `createEmbedding(text)` - 단일 임베딩 생성
+  - `createEmbeddings(texts[])` - 배치 임베딩 생성
+  - `generateChatCompletion(messages)` - GPT 답변 생성
+- ✅ 임베딩 생성 엔드포인트 추가: `POST /kakao/generate-embeddings`
+- ✅ **PostgreSQL 벡터 인덱스 이슈 해결**:
+  - 문제: B-tree 인덱스는 최대 2704 바이트까지만 처리 가능
+  - 해결: B-tree → HNSW 인덱스로 변경 (고차원 벡터 검색 최적화)
+  - 벡터 타입 명시: `vector` → `vector(1536)`
+  - Migration: [20251111151827_remove_btree_indexes_on_vectors](../prisma/migrations/20251111151827_remove_btree_indexes_on_vectors/)
+  - Migration: [20251111151900_add_hnsw_indexes_on_vectors](../prisma/migrations/20251111151900_add_hnsw_indexes_on_vectors/)
+
+**E2E 테스트 완료:**
+- ✅ 523개 tone_samples 임베딩 생성 성공 (100% 성공률)
+- ✅ 총 토큰 사용량: 9,352 tokens
+- ✅ 예상 비용: $0.000187 (약 ₩0.26)
+- ✅ 평균 처리 속도: 17.9 tokens/message
+- ✅ 배치 처리: 6 batches (100개씩)
+- ✅ DB 저장 확인: tone_samples.embedding 컬럼에 1536차원 벡터 저장됨
+
+**파일 구조:**
+```
+src/modules/openai/
+├── openai.module.ts
+├── openai.service.ts
+└── interfaces/
+    └── openai.interface.ts
+```
+
+**환경변수:**
+- `OPENAI_API_KEY` - AI 팀 제공 API 키 사용 (.env)
+
+---
 
 ### AI 팀 FastAPI 코드 수령 및 통합 계획 수립 ✅
 **배경:**
@@ -163,14 +200,14 @@ src/modules/kakao/
 - 문제점: DB 미사용, 임베딩 없음, API 키 하드코딩
 
 **통합 방향:**
-1. **Phase 1**: OpenAI 모듈 생성 (기반 작업)
-2. **Phase 2**: 임베딩 생성 (tone_samples → pgvector)
-3. **Phase 3**: GPT Service 구현 (FastAPI 로직 포팅)
+1. ✅ **Phase 1**: OpenAI 모듈 생성 (기반 작업) - **완료**
+2. ✅ **Phase 2**: 임베딩 생성 (tone_samples → pgvector) - **완료**
+3. **Phase 3**: GPT Service 구현 (FastAPI 로직 포팅) - **다음 단계**
 4. **Phase 4**: Telegram 자동 답변 통합
 
 **AI 팀 요구사항 검증:**
 - ✅ `recent_context`: 최근 대화 N개 (구현됨)
-- ⏳ `similar_context`: 임베딩 유사도 검색 (Phase 2 필요)
+- ✅ `similar_context`: 임베딩 유사도 검색 (Phase 2 완료, 벡터 저장됨)
 - ❓ `style_profile`: txt 파일 (구체적 방법 협의 필요)
 - ✅ `receiver`: 관계 정보 (relationships 테이블)
 
@@ -213,12 +250,10 @@ src/modules/kakao/
 ## 🚧 현재 제한사항
 
 ### 미구현 기능
-- ❌ **임베딩 생성**: OpenAI API 연동 미구현 (tone_samples의 embedding 컬럼 비어있음)
-- ❌ **OpenAI GPT 통합**: AI 팀 FastAPI 코드 수령, NestJS 통합 예정
+- ❌ **OpenAI GPT 통합**: OpenAI 모듈은 완료, GPT Service 구현 예정 (Phase 3)
 - ❌ **Relationship 관리 API**: 현재 카카오톡 업로드 시에만 생성 가능 (Telegram Partner용 필요)
 
 ### 알려진 이슈
-- ⚠️ **FastAPI OpenAI API 키 노출**: app.py에 하드코딩됨 → 즉시 폐기 및 환경변수로 관리 필요
 - ⚠️ **Partner 중복**: 같은 이름으로 카카오톡 업로드 시 중복 생성 가능
 
 ---
@@ -230,31 +265,33 @@ src/modules/kakao/
 AI 팀 FastAPI 코드를 NestJS에 통합하는 전체 계획입니다.
 자세한 내용은 [GPT_INTEGRATION_PLAN.md](./GPT_INTEGRATION_PLAN.md) 참조.
 
-#### Phase 1: OpenAI 모듈 생성 (기반 작업)
+#### ✅ Phase 1: OpenAI 모듈 생성 (기반 작업) - **완료**
 **목표**: OpenAI API 연동 기반 구축
 
-**구현 항목:**
-1. OpenAI SDK 설치 (`npm install openai`)
-2. 환경변수 설정 (`OPENAI_API_KEY`)
-3. OpenAI Module 생성 (`src/modules/openai/`)
-4. OpenaiService 구현
+**구현 완료:**
+1. ✅ OpenAI SDK 설치 (`npm install openai`)
+2. ✅ 환경변수 설정 (`OPENAI_API_KEY`)
+3. ✅ OpenAI Module 생성 (`src/modules/openai/`)
+4. ✅ OpenaiService 구현
    - `createEmbedding(text: string)` - 임베딩 생성
+   - `createEmbeddings(texts: string[])` - 배치 임베딩 생성
    - `generateChatCompletion(messages)` - GPT 답변 생성
 
-**예상 소요 시간**: 30분
+**실제 소요 시간**: 약 30분
 
-#### Phase 2: 임베딩 생성 (이전 Phase 3)
+#### ✅ Phase 2: 임베딩 생성 - **완료**
 **목표**: tone_samples의 텍스트를 임베딩으로 변환하여 DB 저장
 
-**구현 항목:**
-1. Embedding Service 메서드 추가
-   - `generateEmbeddings(texts: string[])` - 배치 임베딩
-2. Kakao Service에 임베딩 엔드포인트 추가
+**구현 완료:**
+1. ✅ Embedding Service 메서드 추가
+   - `createEmbeddings(texts: string[])` - 배치 임베딩
+2. ✅ Kakao Service에 임베딩 엔드포인트 추가
    - `POST /kakao/generate-embeddings` - 전체 tone_samples 임베딩 생성
-3. DB 저장 로직 (Prisma raw query)
-4. 배치 처리 (100개씩, 에러 처리)
+3. ✅ DB 저장 로직 (Prisma raw query, vector 타입 처리)
+4. ✅ 배치 처리 (100개씩, 에러 처리)
+5. ✅ **PostgreSQL B-tree → HNSW 인덱스 마이그레이션**
 
-**예상 소요 시간**: 1시간
+**실제 소요 시간**: 약 2시간 (인덱스 이슈 해결 포함)
 
 #### Phase 3: GPT Service 구현 (핵심)
 **목표**: FastAPI의 GPT 로직을 NestJS로 포팅

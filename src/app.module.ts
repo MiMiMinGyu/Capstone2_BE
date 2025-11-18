@@ -6,6 +6,7 @@ import { TelegramModule } from './modules/telegram/telegram.module';
 import { PrismaModule } from './prisma/prisma.module';
 import { AuthModule } from './modules/auth/auth.module';
 import { KakaoModule } from './modules/kakao/kakao.module';
+import { OpenaiModule } from './modules/openai/openai.module';
 
 @Module({
   imports: [
@@ -16,6 +17,7 @@ import { KakaoModule } from './modules/kakao/kakao.module';
     PrismaModule,
     AuthModule,
     KakaoModule,
+    OpenaiModule,
     TelegramModule,
   ],
   controllers: [AppController],
