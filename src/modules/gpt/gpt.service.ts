@@ -1,0 +1,507 @@
+import { Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { PrismaService } from '../../prisma/prisma.service';
+import { OpenaiService } from '../openai/openai.service';
+import {
+  GenerateReplyResponse,
+  RecentContext,
+  ReceiverInfo,
+  SimilarContext,
+  StyleProfile,
+} from './interfaces/gpt.interface';
+import { ChatMessage } from '../openai/interfaces/openai.interface';
+import { UpdateStyleProfileDto } from './dto';
+
+@Injectable()
+export class GptService {
+  private readonly logger = new Logger(GptService.name);
+
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly openai: OpenaiService,
+  ) {}
+
+  /**
+   * 최근 대화 내역 조회
+   * @param userId 사용자 ID
+   * @param partnerId 대화 상대 Partner ID
+   * @param limit 조회할 메시지 수 (기본 20개)
+   */
+  async getRecentContext(
+    userId: string,
+    partnerId: string,
+    limit = 20,
+  ): Promise<RecentContext> {
+    this.logger.log(
+      `Fetching recent ${limit} messages for user ${userId} with partner ${partnerId}`,
+    );
+
+    // Conversation을 먼저 찾고, 해당 Conversation의 메시지들을 조회
+    const conversation = await this.prisma.conversation.findFirst({
+      where: {
+        user_id: userId,
+        partner_id: partnerId,
+      },
+    });
+
+    if (!conversation) {
+      this.logger.warn(
+        `No conversation found for user ${userId} and partner ${partnerId}`,
+      );
+      return { messages: [] };
+    }
+
+    const messages = await this.prisma.message.findMany({
+      where: {
+        conversation_id: conversation.id,
+      },
+      orderBy: {
+        created_at: 'desc',
+      },
+      take: limit,
+      select: {
+        role: true,
+        text: true,
+        created_at: true,
+      },
+    });
+
+    // 시간 순서대로 정렬 (오래된 것부터)
+    const orderedMessages = messages.reverse().map((msg) => ({
+      sender: msg.role === 'user' ? 'user' : 'assistant',
+      content: msg.text,
+      timestamp: msg.created_at || new Date(),
+    }));
+
+    return {
+      messages: orderedMessages,
+    };
+  }
+
+  /**
+   * 벡터 유사도 검색 (pgvector)
+   * @param userId 사용자 ID
+   * @param messageContent 검색할 메시지 내용
+   * @param limit 조회할 개수 (기본 5개)
+   */
+  async getSimilarContext(
+    userId: string,
+    messageContent: string,
+    limit = 5,
+  ): Promise<SimilarContext> {
+    this.logger.log(
+      `Searching similar tone samples for user ${userId}, limit ${limit}`,
+    );
+
+    // 1. 메시지 임베딩 생성
+    const { embedding } = await this.openai.createEmbedding(messageContent);
+    const vectorString = `[${embedding.join(',')}]`;
+
+    // 2. pgvector 코사인 유사도 검색 (HNSW 인덱스 활용)
+    const similarSamples = await this.prisma.$queryRaw<
+      Array<{ text: string; similarity: number }>
+    >`
+      SELECT
+        text,
+        1 - (embedding <=> ${vectorString}::vector) as similarity
+      FROM tone_samples
+      WHERE user_id = ${userId}::uuid
+        AND embedding IS NOT NULL
+      ORDER BY embedding <=> ${vectorString}::vector
+      LIMIT ${limit}
+    `;
+
+    this.logger.log(`Found ${similarSamples.length} similar examples`);
+
+    return {
+      examples: similarSamples,
+    };
+  }
+
+  /**
+   * 사용자 말투 프로필 조회
+   * @param userId 사용자 ID
+   */
+  async getStyleProfile(userId: string): Promise<StyleProfile> {
+    this.logger.log(`Fetching style profile for user ${userId}`);
+
+    const profile = await this.prisma.styleProfile.findUnique({
+      where: { user_id: userId },
+    });
+
+    if (!profile) {
+      this.logger.warn(`No style profile found for user ${userId}`);
+      return {
+        characteristics: [],
+      };
+    }
+
+    const characteristics: string[] = [];
+
+    // StyleProfile은 honorific_rules, constraints만 있음
+    // ToneSample에서 통계 계산 또는 제약 조건 사용
+    const toneSamples = await this.prisma.toneSample.findMany({
+      where: { user_id: userId },
+      select: {
+        politeness: true,
+        vibe: true,
+        category: true,
+      },
+      take: 100, // 최근 100개 샘플 분석
+    });
+
+    // 말투 특징 추출 (가장 빈도 높은 값)
+    const politenessCount = new Map<string, number>();
+    const vibeCount = new Map<string, number>();
+
+    toneSamples.forEach((sample) => {
+      if (sample.politeness) {
+        politenessCount.set(
+          sample.politeness,
+          (politenessCount.get(sample.politeness) || 0) + 1,
+        );
+      }
+      if (sample.vibe) {
+        vibeCount.set(sample.vibe, (vibeCount.get(sample.vibe) || 0) + 1);
+      }
+    });
+
+    // 가장 빈도 높은 말투 특징
+    let maxPoliteness = '';
+    let maxPolitenessCount = 0;
+    politenessCount.forEach((count, level) => {
+      if (count > maxPolitenessCount) {
+        maxPoliteness = level;
+        maxPolitenessCount = count;
+      }
+    });
+
+    let maxVibe = '';
+    let maxVibeCount = 0;
+    vibeCount.forEach((count, vibe) => {
+      if (count > maxVibeCount) {
+        maxVibe = vibe;
+        maxVibeCount = count;
+      }
+    });
+
+    if (maxPoliteness) {
+      characteristics.push(`존댓말/반말: ${maxPoliteness}`);
+    }
+    if (maxVibe) {
+      characteristics.push(`말투 분위기: ${maxVibe}`);
+    }
+
+    characteristics.push(`분석된 대화 샘플: ${toneSamples.length}개`);
+
+    return {
+      politenessLevel: maxPoliteness || undefined,
+      vibeType: maxVibe || undefined,
+      characteristics,
+    };
+  }
+
+  /**
+   * 수신자 (대화 상대) 정보 조회
+   * @param userId 사용자 ID
+   * @param partnerId Partner ID
+   */
+  async getReceiverInfo(
+    userId: string,
+    partnerId: string,
+  ): Promise<ReceiverInfo> {
+    this.logger.log(`Fetching receiver info for partner ${partnerId}`);
+
+    // Partner 정보 조회
+    const partner = await this.prisma.partner.findUnique({
+      where: { id: partnerId },
+    });
+
+    if (!partner) {
+      throw new NotFoundException(`Partner not found: ${partnerId}`);
+    }
+
+    // Relationship 정보 조회
+    const relationship = await this.prisma.relationship.findFirst({
+      where: {
+        user_id: userId,
+        partner_id: partnerId,
+      },
+    });
+
+    return {
+      name: partner.name,
+      // 관계 정보가 없으면 격식 있는 존댓말 카테고리 (ACQUAINTANCE_CASUAL) 사용
+      category: relationship?.category || 'ACQUAINTANCE_CASUAL',
+      relationshipDescription: relationship
+        ? `${relationship.politeness || 'CASUAL'}, ${relationship.vibe || 'CALM'}`
+        : '격식 있는 존댓말', // 관계 정보 없을 때 기본 설명
+    };
+  }
+
+  /**
+   * GPT 프롬프트 구성 (FastAPI 로직 포팅)
+   * @param userName 사용자 이름
+   * @param styleProfile 말투 프로필
+   * @param recentContext 최근 대화
+   * @param similarContext 유사 말투 예시
+   * @param receiverInfo 수신자 정보
+   * @param message 수신한 메시지
+   * @param customGuidelines 사용자 정의 말투 지침 (선택)
+   */
+  buildPrompt(
+    userName: string,
+    styleProfile: StyleProfile,
+    recentContext: RecentContext,
+    similarContext: SimilarContext,
+    receiverInfo: ReceiverInfo,
+    message: string,
+    customGuidelines?: string,
+  ): ChatMessage[] {
+    // 말투 예시 텍스트 (유사도 높은 순)
+    const profileText = similarContext.examples.map((ex) => ex.text).join('\n');
+
+    // 최근 대화 텍스트
+    const recentMessagesText = recentContext.messages
+      .map((msg) => `${msg.sender}: ${msg.content}`)
+      .join('\n');
+
+    // 기본 제약 조건 (사용자 정의 지침이 없을 경우)
+    // 개인차가 큰 항목은 제외하고, 최소한의 일반적인 가이드만 제공
+    const defaultConstraints = `
+[답변 제약 조건]
+- 제공된 말투 예시를 참고하여 자연스럽게 답변
+- 대화 상대와의 관계(${receiverInfo.category})에 맞는 격식 수준 유지
+- 관계 정보가 없는 대상(ACQUAINTANCE_CASUAL)에게는 격식 있는 존댓말 사용
+- 최근 대화 맥락을 고려하여 일관성 있는 톤 유지
+`;
+
+    // 사용자 정의 지침 또는 기본 제약 조건
+    const constraints = customGuidelines
+      ? `\n[사용자 정의 말투 지침]\n${customGuidelines}\n`
+      : defaultConstraints;
+
+    // System prompt
+    const systemContent = `너는 사용자 '${userName}'의 말투를 모방하는 AI야. 반드시 주어진 말투 특징과 대화 상대의 관계를 반영해야 해.
+
+아래 대화록은 ${userName}의 실제 말투 예시야.
+${userName}의 문장 리듬, 감탄사, 억양, 말끝, 문장 길이를 세밀하게 분석해 그대로 반영해.
+하지만 답변은 자연스럽고 짧게, 최대 두 문장에서 세 문장 이내로 핵심만 말해. 불필요한 반복이나 긴 설명은 하지 마.
+
+[말투 예시]
+${profileText}
+
+[대화 상대 정보]
+이름: ${receiverInfo.name}
+관계: ${receiverInfo.category}
+${receiverInfo.relationshipDescription ? `설명: ${receiverInfo.relationshipDescription}` : ''}
+
+[최근 대화 맥락]
+${recentMessagesText || '(최근 대화 없음)'}
+
+[말투 분석 결과]
+${styleProfile.characteristics.length > 0 ? styleProfile.characteristics.join('\n') : '(분석 중)'}
+${constraints}
+
+위 제약 조건을 엄격히 준수하면서, 위 말투 예시와 유사한 스타일로 자연스럽게 답변해줘.`;
+
+    const userContent = `${receiverInfo.name}: ${message}`;
+
+    return [
+      { role: 'system' as const, content: systemContent },
+      { role: 'user' as const, content: userContent },
+    ];
+  }
+
+  /**
+   * 사용자 정의 말투 지침 조회 (타입 안전)
+   * @param userId 사용자 ID
+   */
+  private async getCustomGuidelines(
+    userId: string,
+  ): Promise<string | undefined> {
+    const rows = await this.prisma.$queryRaw<
+      Array<{ custom_guidelines: string | null }>
+    >`
+      SELECT custom_guidelines
+      FROM style_profiles
+      WHERE user_id = ${userId}::uuid
+      LIMIT 1
+    `;
+    return rows[0]?.custom_guidelines || undefined;
+  }
+
+  /**
+   * GPT 답변 생성 (메인 메서드)
+   * @param userId 사용자 ID
+   * @param partnerId 대화 상대 Partner ID
+   * @param message 수신한 메시지
+   */
+  async generateReply(
+    userId: string,
+    partnerId: string,
+    message: string,
+  ): Promise<GenerateReplyResponse> {
+    this.logger.log(
+      `[GPT] 📨 요청 수신 - userId: ${userId}, partnerId: ${partnerId}, message: "${message}"`,
+    );
+
+    // 1. 사용자 정보 조회
+    this.logger.log(`[GPT] 1️⃣ 사용자 정보 조회 중...`);
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+    });
+
+    if (!user) {
+      this.logger.error(`[GPT] ❌ 사용자를 찾을 수 없음: ${userId}`);
+      throw new NotFoundException(`User not found: ${userId}`);
+    }
+
+    const userName = user.name || 'User';
+    this.logger.log(`[GPT] ✅ 사용자 찾음: ${userName} (${user.email})`);
+
+    // 2. 컨텍스트 수집 (병렬 처리) + 사용자 정의 지침 조회
+    this.logger.log(`[GPT] 2️⃣ 컨텍스트 수집 시작 (5개 병렬 쿼리)...`);
+    const [
+      recentContext,
+      similarContext,
+      styleProfile,
+      receiverInfo,
+      userStyleProfile,
+    ] = await Promise.all([
+      this.getRecentContext(userId, partnerId, 20),
+      this.getSimilarContext(userId, message, 15), // 5 → 15로 증가
+      this.getStyleProfile(userId),
+      this.getReceiverInfo(userId, partnerId),
+      // 사용자 정의 말투 지침 조회 (Raw Query로 타입 오류 회피)
+      this.prisma.$queryRaw<Array<{ custom_guidelines: string | null }>>`
+        SELECT custom_guidelines
+        FROM style_profiles
+        WHERE user_id = ${userId}::uuid
+        LIMIT 1
+      `.then((rows) => rows[0] || null),
+    ]);
+
+    const customGuidelines = userStyleProfile?.custom_guidelines || undefined;
+
+    this.logger.log(
+      `[GPT] ✅ 컨텍스트 수집 완료 - 최근 메시지: ${recentContext.messages.length}개, 유사 예시: ${similarContext.examples.length}개, 사용자 지침: ${customGuidelines ? '있음' : '기본값'}`,
+    );
+
+    // 3. 프롬프트 구성
+    this.logger.log(`[GPT] 3️⃣ GPT 프롬프트 구성 중...`);
+    const messages = this.buildPrompt(
+      userName,
+      styleProfile,
+      recentContext,
+      similarContext,
+      receiverInfo,
+      message,
+      customGuidelines,
+    );
+    this.logger.log(
+      `[GPT] ✅ 프롬프트 구성 완료 (메시지 ${messages.length}개)`,
+    );
+
+    // 4. GPT API 호출 (말투 재현성 개선을 위해 파라미터 조정)
+    this.logger.log(
+      `[GPT] 4️⃣ OpenAI GPT API 호출 중... (temperature: 0.9, maxTokens: 100)`,
+    );
+    const completion = await this.openai.generateChatCompletion(messages, {
+      temperature: 0.9, // 0.7 → 0.9 (더 창의적이고 자연스러운 답변)
+      maxTokens: 100, // 60 → 100 (더 긴 답변 가능)
+    });
+
+    const reply = completion.content;
+
+    this.logger.log(`[GPT] ✅ GPT 답변 생성 성공: "${reply}"`);
+
+    // 5. 응답 반환 (디버깅용 컨텍스트 포함)
+    const response = {
+      reply,
+      context: {
+        recentMessages: recentContext.messages.map((m) => m.content),
+        similarExamples: similarContext.examples.map((e) => e.text),
+        styleProfile: styleProfile.characteristics.join(', '),
+        receiverInfo: `${receiverInfo.name} (${receiverInfo.category})`,
+      },
+    };
+
+    this.logger.log(`[GPT] 🎉 응답 반환 완료`);
+    return response;
+  }
+
+  /**
+   * 말투 설정 저장/업데이트
+   * @param userId 사용자 ID
+   * @param dto 업데이트할 말투 설정
+   */
+  async updateStyleProfile(userId: string, dto: UpdateStyleProfileDto) {
+    this.logger.log(
+      `[GPT] 말투 설정 업데이트 - userId: ${userId}, guidelines: ${dto.customGuidelines ? '있음' : '없음'}`,
+    );
+
+    // Upsert: 존재하면 업데이트, 없으면 생성
+    await this.prisma.$executeRaw`
+      INSERT INTO style_profiles (user_id, custom_guidelines, updated_at)
+      VALUES (${userId}::uuid, ${dto.customGuidelines || null}, NOW())
+      ON CONFLICT (user_id)
+      DO UPDATE SET
+        custom_guidelines = ${dto.customGuidelines || null},
+        updated_at = NOW()
+    `;
+
+    // 조회하여 반환
+    const updated = await this.prisma.styleProfile.findUnique({
+      where: { user_id: userId },
+    });
+
+    this.logger.log(`[GPT] ✅ 말투 설정 업데이트 완료`);
+    return updated;
+  }
+
+  /**
+   * 말투 설정 조회
+   * @param userId 사용자 ID
+   */
+  async getStyleProfileSettings(userId: string) {
+    this.logger.log(`[GPT] 말투 설정 조회 - userId: ${userId}`);
+
+    const styleProfile = await this.prisma.styleProfile.findUnique({
+      where: { user_id: userId },
+    });
+
+    if (!styleProfile) {
+      this.logger.warn(`[GPT] ⚠️ 말투 설정 없음 - userId: ${userId}`);
+      throw new NotFoundException('Style profile not found');
+    }
+
+    return styleProfile;
+  }
+
+  /**
+   * 말투 설정 삭제 (기본값으로 리셋)
+   * @param userId 사용자 ID
+   */
+  async deleteStyleProfile(userId: string) {
+    this.logger.log(`[GPT] 말투 설정 삭제 - userId: ${userId}`);
+
+    const styleProfile = await this.prisma.styleProfile.findUnique({
+      where: { user_id: userId },
+    });
+
+    if (!styleProfile) {
+      this.logger.warn(`[GPT] ⚠️ 삭제할 말투 설정 없음 - userId: ${userId}`);
+      throw new NotFoundException('Style profile not found');
+    }
+
+    // custom_guidelines만 NULL로 업데이트
+    await this.prisma.$executeRaw`
+      UPDATE style_profiles
+      SET custom_guidelines = NULL, updated_at = NOW()
+      WHERE user_id = ${userId}::uuid
+    `;
+
+    this.logger.log(`[GPT] ✅ 말투 설정 삭제 완료 (기본값으로 리셋)`);
+    return { message: 'Style profile deleted successfully' };
+  }
+}

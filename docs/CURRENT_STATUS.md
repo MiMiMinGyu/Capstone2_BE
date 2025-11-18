@@ -1,6 +1,6 @@
 # 프로젝트 현재 상태
 
-> 최종 업데이트: 2025-11-11 15:30
+> 최종 업데이트: 2025-11-18 15:10
 
 ## ✅ 완료된 작업
 
@@ -147,9 +147,67 @@ src/modules/kakao/
 
 ---
 
-## 🔄 최근 업데이트 (2025-11-12)
+## 🔄 최근 업데이트 (2025-11-18)
 
-### Phase 1 & 2: OpenAI 모듈 및 임베딩 생성 완료 ✅ **NEW!**
+### Phase 3: GPT Service 구현 완료 ✅ **NEW!**
+**구현 완료:**
+- ✅ GPT 모듈 생성 (`src/modules/gpt/`)
+- ✅ GptService 6개 핵심 메서드 구현
+  - `generateReply()` - 메인 답변 생성 메서드
+  - `getRecentContext()` - 최근 대화 20개 조회 (Conversation → Message)
+  - `getSimilarContext()` - pgvector 유사도 검색 (15개 예시)
+  - `getStyleProfile()` - ToneSample 통계 분석 (politeness, vibe)
+  - `getReceiverInfo()` - Partner & Relationship 정보 조회
+  - `buildPrompt()` - GPT 프롬프트 구성 (system + user messages)
+- ✅ GPT Controller 구현
+  - `POST /gpt/generate` - JWT 인증 보호, Swagger 문서화
+- ✅ DTO 및 Interface 정의
+  - `GenerateReplyDto` - 요청 검증 (userId, partnerId, message)
+  - `GenerateReplyResponse` - 응답 형식 (reply + context)
+- ✅ Swagger Authorization 이슈 해결
+  - `@ApiBearerAuth('access-token')` 추가로 토큰 전송 문제 해결
+
+**GPT 설정 최적화:**
+- Model: `gpt-4o-mini` (빠르고 저렴)
+- Temperature: 0.9 (창의적이고 자연스러운 답변)
+- Max Tokens: 100 (충분한 답변 길이)
+- Similar Examples: 15개 (풍부한 말투 컨텍스트)
+
+**E2E 테스트 완료:**
+- ✅ 로그인 → GPT 답변 생성 → 응답 확인
+- ✅ 벡터 유사도 검색 정상 작동 (HNSW 인덱스)
+- ✅ 관계별 정보 반영 확인 (FRIEND_CLOSE 등)
+- ✅ Context 디버깅 정보 포함 (recentMessages, similarExamples, styleProfile, receiverInfo)
+
+**테스트 결과 예시:**
+```json
+{
+  "reply": "뭐야, 뭐냐고? ㅋㅋ 지금 뭐 하는 중인데?",
+  "context": {
+    "recentMessages": [],
+    "similarExamples": ["?", "4시?", "그치..?", "제", "그래야 되는 거 아냐...??"],
+    "styleProfile": "",
+    "receiverInfo": "이유신 외 2명 (FRIEND_CLOSE)"
+  }
+}
+```
+
+**파일 구조:**
+```
+src/modules/gpt/
+├── gpt.module.ts
+├── gpt.controller.ts
+├── gpt.service.ts (370+ lines)
+├── dto/
+│   ├── generate-reply.dto.ts
+│   └── index.ts
+└── interfaces/
+    └── gpt.interface.ts
+```
+
+---
+
+### Phase 1 & 2: OpenAI 모듈 및 임베딩 생성 완료 ✅
 **구현 완료:**
 - ✅ OpenAI SDK 설치 및 모듈 생성 (`src/modules/openai/`)
 - ✅ OpenaiService 구현
