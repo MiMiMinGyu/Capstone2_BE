@@ -44,7 +44,9 @@ async function getTestData() {
       FROM tone_samples
       WHERE user_id = ${userId}::uuid AND embedding IS NOT NULL
     `;
-    console.log(`📌 ToneSamples with embeddings: ${Number(toneSampleCount[0].count)}개\n`);
+    console.log(
+      `📌 ToneSamples with embeddings: ${Number(toneSampleCount[0].count)}개\n`,
+    );
 
     // 4. 테스트용 Request Body 출력
     if (partners.length > 0) {

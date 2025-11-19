@@ -111,6 +111,8 @@ model ToneSample {
 
   @@index([category], map: "idx_tone_samples_category")
   @@index([user_id], map: "idx_tone_samples_user_id")
+  @@index([user_id, politeness], map: "idx_tone_samples_user_politeness")
+  @@index([user_id, vibe], map: "idx_tone_samples_user_vibe")
   @@map("tone_samples")
 }
 

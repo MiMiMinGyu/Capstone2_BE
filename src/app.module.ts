@@ -8,6 +8,7 @@ import { AuthModule } from './modules/auth/auth.module';
 import { KakaoModule } from './modules/kakao/kakao.module';
 import { OpenaiModule } from './modules/openai/openai.module';
 import { GptModule } from './modules/gpt/gpt.module';
+import { RelationshipModule } from './modules/relationship/relationship.module';
 
 @Module({
   imports: [
@@ -20,6 +21,7 @@ import { GptModule } from './modules/gpt/gpt.module';
     KakaoModule,
     OpenaiModule,
     GptModule,
+    RelationshipModule,
     TelegramModule,
   ],
   controllers: [AppController],
