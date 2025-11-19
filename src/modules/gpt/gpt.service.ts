@@ -35,11 +35,24 @@ export class GptService {
       `Fetching recent ${limit} messages for user ${userId} with partner ${partnerId}`,
     );
 
-    // Conversation을 먼저 찾고, 해당 Conversation의 메시지들을 조회
+    // 최적화: Conversation과 메시지를 한 번의 쿼리로 조회
     const conversation = await this.prisma.conversation.findFirst({
       where: {
         user_id: userId,
         partner_id: partnerId,
+      },
+      include: {
+        messages: {
+          orderBy: {
+            created_at: 'desc',
+          },
+          take: limit,
+          select: {
+            role: true,
+            text: true,
+            created_at: true,
+          },
+        },
       },
     });
 
@@ -50,23 +63,8 @@ export class GptService {
       return { messages: [] };
     }
 
-    const messages = await this.prisma.message.findMany({
-      where: {
-        conversation_id: conversation.id,
-      },
-      orderBy: {
-        created_at: 'desc',
-      },
-      take: limit,
-      select: {
-        role: true,
-        text: true,
-        created_at: true,
-      },
-    });
-
     // 시간 순서대로 정렬 (오래된 것부터)
-    const orderedMessages = messages.reverse().map((msg) => ({
+    const orderedMessages = conversation.messages.reverse().map((msg) => ({
       sender: msg.role === 'user' ? 'user' : 'assistant',
       content: msg.text,
       timestamp: msg.created_at || new Date(),
@@ -138,51 +136,32 @@ export class GptService {
     const characteristics: string[] = [];
 
     // StyleProfile은 honorific_rules, constraints만 있음
-    // ToneSample에서 통계 계산 또는 제약 조건 사용
-    const toneSamples = await this.prisma.toneSample.findMany({
-      where: { user_id: userId },
-      select: {
-        politeness: true,
-        vibe: true,
-        category: true,
-      },
-      take: 100, // 최근 100개 샘플 분석
-    });
+    // ToneSample에서 SQL 집계로 통계 계산 (최적화: 인메모리 → SQL)
+    const [politenessStats, vibeStats, totalCount] = await Promise.all([
+      // 가장 많이 사용된 politeness 조회
+      this.prisma.$queryRaw<Array<{ politeness: string; count: bigint }>>`
+        SELECT politeness, COUNT(*) as count
+        FROM tone_samples
+        WHERE user_id = ${userId}::uuid AND politeness IS NOT NULL
+        GROUP BY politeness
+        ORDER BY count DESC
+        LIMIT 1
+      `,
+      // 가장 많이 사용된 vibe 조회
+      this.prisma.$queryRaw<Array<{ vibe: string; count: bigint }>>`
+        SELECT vibe, COUNT(*) as count
+        FROM tone_samples
+        WHERE user_id = ${userId}::uuid AND vibe IS NOT NULL
+        GROUP BY vibe
+        ORDER BY count DESC
+        LIMIT 1
+      `,
+      // 전체 샘플 개수
+      this.prisma.toneSample.count({ where: { user_id: userId } }),
+    ]);
 
-    // 말투 특징 추출 (가장 빈도 높은 값)
-    const politenessCount = new Map<string, number>();
-    const vibeCount = new Map<string, number>();
-
-    toneSamples.forEach((sample) => {
-      if (sample.politeness) {
-        politenessCount.set(
-          sample.politeness,
-          (politenessCount.get(sample.politeness) || 0) + 1,
-        );
-      }
-      if (sample.vibe) {
-        vibeCount.set(sample.vibe, (vibeCount.get(sample.vibe) || 0) + 1);
-      }
-    });
-
-    // 가장 빈도 높은 말투 특징
-    let maxPoliteness = '';
-    let maxPolitenessCount = 0;
-    politenessCount.forEach((count, level) => {
-      if (count > maxPolitenessCount) {
-        maxPoliteness = level;
-        maxPolitenessCount = count;
-      }
-    });
-
-    let maxVibe = '';
-    let maxVibeCount = 0;
-    vibeCount.forEach((count, vibe) => {
-      if (count > maxVibeCount) {
-        maxVibe = vibe;
-        maxVibeCount = count;
-      }
-    });
+    const maxPoliteness = politenessStats[0]?.politeness || '';
+    const maxVibe = vibeStats[0]?.vibe || '';
 
     if (maxPoliteness) {
       characteristics.push(`존댓말/반말: ${maxPoliteness}`);
@@ -191,7 +170,7 @@ export class GptService {
       characteristics.push(`말투 분위기: ${maxVibe}`);
     }
 
-    characteristics.push(`분석된 대화 샘플: ${toneSamples.length}개`);
+    characteristics.push(`분석된 대화 샘플: ${totalCount}개`);
 
     return {
       politenessLevel: maxPoliteness || undefined,
@@ -211,22 +190,24 @@ export class GptService {
   ): Promise<ReceiverInfo> {
     this.logger.log(`Fetching receiver info for partner ${partnerId}`);
 
-    // Partner 정보 조회
+    // 최적화: Partner와 Relationship을 한 번의 쿼리로 조회
     const partner = await this.prisma.partner.findUnique({
       where: { id: partnerId },
+      include: {
+        relationships: {
+          where: {
+            user_id: userId,
+          },
+          take: 1,
+        },
+      },
     });
 
     if (!partner) {
       throw new NotFoundException(`Partner not found: ${partnerId}`);
     }
 
-    // Relationship 정보 조회
-    const relationship = await this.prisma.relationship.findFirst({
-      where: {
-        user_id: userId,
-        partner_id: partnerId,
-      },
-    });
+    const relationship = partner.relationships[0];
 
     return {
       name: partner.name,
@@ -277,15 +258,19 @@ export class GptService {
 
     // 사용자 정의 지침 또는 기본 제약 조건
     const constraints = customGuidelines
-      ? `\n[사용자 정의 말투 지침]\n${customGuidelines}\n`
+      ? `\n[🚨 CRITICAL: 사용자 정의 말투 규칙 - 반드시 준수할 것]\n${customGuidelines}\n`
       : defaultConstraints;
 
     // System prompt
-    const systemContent = `너는 사용자 '${userName}'의 말투를 모방하는 AI야. 반드시 주어진 말투 특징과 대화 상대의 관계를 반영해야 해.
+    const systemContent = `너는 사용자 '${userName}'의 말투를 모방하는 AI야.
+
+${constraints}
+
+⚠️ 위 규칙은 절대적이며, 어떤 경우에도 위반해서는 안 됨. 특히 문장부호 사용 금지 규칙이 있다면 반드시 지켜야 함.
 
 아래 대화록은 ${userName}의 실제 말투 예시야.
 ${userName}의 문장 리듬, 감탄사, 억양, 말끝, 문장 길이를 세밀하게 분석해 그대로 반영해.
-하지만 답변은 자연스럽고 짧게, 최대 두 문장에서 세 문장 이내로 핵심만 말해. 불필요한 반복이나 긴 설명은 하지 마.
+답변은 자연스럽고 짧게, 최대 두 문장에서 세 문장 이내로 핵심만 말해.
 
 [말투 예시]
 ${profileText}
@@ -300,9 +285,8 @@ ${recentMessagesText || '(최근 대화 없음)'}
 
 [말투 분석 결과]
 ${styleProfile.characteristics.length > 0 ? styleProfile.characteristics.join('\n') : '(분석 중)'}
-${constraints}
 
-위 제약 조건을 엄격히 준수하면서, 위 말투 예시와 유사한 스타일로 자연스럽게 답변해줘.`;
+위 모든 조건을 반영하여 ${userName}처럼 답변해줘.`;
 
     const userContent = `${receiverInfo.name}: ${message}`;
 
@@ -310,24 +294,6 @@ ${constraints}
       { role: 'system' as const, content: systemContent },
       { role: 'user' as const, content: userContent },
     ];
-  }
-
-  /**
-   * 사용자 정의 말투 지침 조회 (타입 안전)
-   * @param userId 사용자 ID
-   */
-  private async getCustomGuidelines(
-    userId: string,
-  ): Promise<string | undefined> {
-    const rows = await this.prisma.$queryRaw<
-      Array<{ custom_guidelines: string | null }>
-    >`
-      SELECT custom_guidelines
-      FROM style_profiles
-      WHERE user_id = ${userId}::uuid
-      LIMIT 1
-    `;
-    return rows[0]?.custom_guidelines || undefined;
   }
 
   /**
@@ -404,11 +370,11 @@ ${constraints}
 
     // 4. GPT API 호출 (말투 재현성 개선을 위해 파라미터 조정)
     this.logger.log(
-      `[GPT] 4️⃣ OpenAI GPT API 호출 중... (temperature: 0.9, maxTokens: 100)`,
+      `[GPT] 4️⃣ OpenAI GPT API 호출 중... (temperature: 0.7, maxTokens: 100)`,
     );
     const completion = await this.openai.generateChatCompletion(messages, {
-      temperature: 0.9, // 0.7 → 0.9 (더 창의적이고 자연스러운 답변)
-      maxTokens: 100, // 60 → 100 (더 긴 답변 가능)
+      temperature: 0.7, // 규칙 준수성 향상 (0.9 → 0.7)
+      maxTokens: 100, // 충분한 답변 길이
     });
 
     const reply = completion.content;

@@ -1,6 +1,6 @@
 # API 명세서 (Frontend Integration)
 
-> 최종 업데이트: 2025-11-07
+> 최종 업데이트: 2025-11-18
 >
 > **Base URL**: `http://localhost:3000`
 >
@@ -11,10 +11,10 @@
 ## 📑 목차
 
 1. [인증 (Authentication)](#1-인증-authentication)
-2. [카카오톡 (Kakao)](#2-카카오톡-kakao) ✨ **NEW!**
+2. [카카오톡 (Kakao)](#2-카카오톡-kakao)
 3. [텔레그램 (Telegram)](#3-텔레그램-telegram)
 4. [파트너 (Partners)](#4-파트너-partners)
-5. [관계 (Relationships)](#5-관계-relationships-미구현)
+5. [관계 (Relationships)](#5-관계-relationships) ✨ **NEW!**
 6. [공통 타입 정의](#6-공통-타입-정의)
 7. [에러 응답](#7-에러-응답)
 
@@ -476,7 +476,7 @@ type GetPartnersResponse = Partner[];
 ```
 
 **참고:**
-- 현재 하드코딩된 추천 답변 (OpenAI 통합 예정)
+- 현재 GPT-4 기반 AI 답변 생성 (RAG + Relationship 설정 반영)
 
 ---
 
@@ -573,7 +573,7 @@ eventSource.onerror = (error) => {
 
 ---
 
-### 3.7 대화 목록 조회 (예정 - Phase 4) 🚧
+### 3.7 대화 목록 조회 (예정 - Phase 5) 🚧
 
 **GET** `/telegram/conversations`
 
@@ -612,7 +612,7 @@ Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
 
 ---
 
-### 3.8 대화 히스토리 조회 (예정 - Phase 4) 🚧
+### 3.8 대화 히스토리 조회 (예정 - Phase 5) 🚧
 
 **GET** `/telegram/conversations/:partnerId/messages`
 
@@ -672,9 +672,11 @@ Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
 
 ---
 
-## 5. 관계 (Relationships)
+## 5. 관계 (Relationships) ✨
 
-### 5.1 관계 목록 조회 (예정 - Phase 4) 🚧
+Partner와의 관계 설정을 관리하는 API입니다. 관계 설정에 따라 GPT 답변 생성 시 톤과 스타일이 조정됩니다.
+
+### 5.1 관계 목록 조회
 
 **GET** `/relationships`
 
@@ -689,29 +691,74 @@ Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
 ```json
 [
   {
-    "id": "uuid",
-    "partner": {
-      "id": "uuid",
-      "name": "김철수",
-      "telegram_id": "987654321"
-    },
+    "id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
+    "user_id": "5ffc7298-98c5-44d0-a62e-7a2ac180a64d",
+    "partner_id": "716d0ed5-c04e-4315-aa8c-05c5ade05b7e",
     "category": "FRIEND_CLOSE",
     "politeness": "CASUAL",
     "vibe": "PLAYFUL",
-    "emoji_level": 2,
-    "created_at": "2025-01-15T10:00:00.000Z",
-    "updated_at": "2025-01-15T10:00:00.000Z"
+    "emoji_level": 3,
+    "created_at": "2025-11-18T07:00:00.000Z",
+    "updated_at": "2025-11-18T07:00:00.000Z",
+    "partner": {
+      "id": "716d0ed5-c04e-4315-aa8c-05c5ade05b7e",
+      "name": "홍길동",
+      "telegram_id": "123456789"
+    }
   }
 ]
 ```
 
+**에러 응답:**
+- `401 Unauthorized` - 인증되지 않음
+
 ---
 
-### 5.2 관계 생성 (예정 - Phase 4) 🚧
+### 5.2 특정 관계 조회
+
+**GET** `/relationships/:id`
+
+ID로 특정 관계를 조회합니다.
+
+**요청 Headers:**
+```
+Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+```
+
+**URL Parameters:**
+- `id`: Relationship ID (UUID)
+
+**응답 (200 OK):**
+```json
+{
+  "id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
+  "user_id": "5ffc7298-98c5-44d0-a62e-7a2ac180a64d",
+  "partner_id": "716d0ed5-c04e-4315-aa8c-05c5ade05b7e",
+  "category": "FRIEND_CLOSE",
+  "politeness": "CASUAL",
+  "vibe": "PLAYFUL",
+  "emoji_level": 3,
+  "created_at": "2025-11-18T07:00:00.000Z",
+  "updated_at": "2025-11-18T07:00:00.000Z",
+  "partner": {
+    "id": "716d0ed5-c04e-4315-aa8c-05c5ade05b7e",
+    "name": "홍길동",
+    "telegram_id": "123456789"
+  }
+}
+```
+
+**에러 응답:**
+- `401 Unauthorized` - 인증되지 않음
+- `404 Not Found` - 관계를 찾을 수 없음
+
+---
+
+### 5.3 관계 생성
 
 **POST** `/relationships`
 
-새로운 관계를 설정합니다.
+Partner와의 새로운 관계를 설정합니다.
 
 **요청 Headers:**
 ```
@@ -721,13 +768,22 @@ Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
 **요청 Body:**
 ```json
 {
-  "partner_id": "550e8400-e29b-41d4-a716-446655440000",
+  "partnerId": "716d0ed5-c04e-4315-aa8c-05c5ade05b7e",
   "category": "FRIEND_CLOSE",
   "politeness": "CASUAL",
   "vibe": "PLAYFUL",
-  "emoji_level": 2
+  "emojiLevel": 3
 }
 ```
+
+**필수 필드:**
+- `partnerId` (string, UUID): Partner ID
+- `category` (string): 관계 카테고리 (아래 목록 참조)
+
+**선택 필드:**
+- `politeness` (string): 존댓말/반말 수준 (기본값: `POLITE`)
+- `vibe` (string): 대화 분위기 (기본값: `CALM`)
+- `emojiLevel` (number, 0-5): 이모지 사용 빈도 (기본값: 0)
 
 **Relationship Categories:**
 - `FAMILY_ELDER_CLOSE` - 부모/조부모/삼촌·이모 등 어른 가족
@@ -748,31 +804,226 @@ Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
 
 **Vibe Types:**
 - `CALM` - 차분
-- `DIRECT` - 직설
-- `PLAYFUL` - 장난
-- `CARING` - 배려
+- `DIRECT` - 직설적
+- `PLAYFUL` - 장난스러운
+- `CARING` - 배려하는
 
-**Emoji Level:** 0~3 (0: 없음, 3: 매우 많음)
+**Emoji Level:** 0~5 (0: 없음, 5: 매우 많음)
 
 **응답 (201 Created):**
 ```json
 {
-  "id": "uuid",
-  "user_id": "uuid",
-  "partner_id": "uuid",
+  "id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
+  "user_id": "5ffc7298-98c5-44d0-a62e-7a2ac180a64d",
+  "partner_id": "716d0ed5-c04e-4315-aa8c-05c5ade05b7e",
   "category": "FRIEND_CLOSE",
   "politeness": "CASUAL",
   "vibe": "PLAYFUL",
-  "emoji_level": 2,
-  "created_at": "2025-01-15T10:00:00.000Z",
-  "updated_at": "2025-01-15T10:00:00.000Z"
+  "emoji_level": 3,
+  "created_at": "2025-11-18T07:00:00.000Z",
+  "updated_at": "2025-11-18T07:00:00.000Z",
+  "partner": {
+    "id": "716d0ed5-c04e-4315-aa8c-05c5ade05b7e",
+    "name": "홍길동",
+    "telegram_id": "123456789"
+  }
 }
 ```
 
 **에러 응답:**
 - `400 Bad Request` - 잘못된 카테고리 또는 값
-- `409 Conflict` - 이미 관계가 설정됨
+- `404 Not Found` - Partner를 찾을 수 없음
+- `409 Conflict` - 이미 관계가 설정됨 (같은 Partner와 중복)
 - `401 Unauthorized` - 인증되지 않음
+
+---
+
+### 5.4 관계 수정
+
+**PATCH** `/relationships/:id`
+
+관계 정보를 수정합니다. 원하는 필드만 업데이트할 수 있습니다.
+
+**요청 Headers:**
+```
+Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+```
+
+**URL Parameters:**
+- `id`: Relationship ID (UUID)
+
+**요청 Body (모든 필드 선택):**
+```json
+{
+  "category": "FRIEND_CASUAL",
+  "politeness": "POLITE",
+  "vibe": "CALM",
+  "emojiLevel": 2
+}
+```
+
+**응답 (200 OK):**
+```json
+{
+  "id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
+  "user_id": "5ffc7298-98c5-44d0-a62e-7a2ac180a64d",
+  "partner_id": "716d0ed5-c04e-4315-aa8c-05c5ade05b7e",
+  "category": "FRIEND_CASUAL",
+  "politeness": "POLITE",
+  "vibe": "CALM",
+  "emoji_level": 2,
+  "created_at": "2025-11-18T07:00:00.000Z",
+  "updated_at": "2025-11-18T07:05:00.000Z",
+  "partner": {
+    "id": "716d0ed5-c04e-4315-aa8c-05c5ade05b7e",
+    "name": "홍길동",
+    "telegram_id": "123456789"
+  }
+}
+```
+
+**에러 응답:**
+- `401 Unauthorized` - 인증되지 않음
+- `404 Not Found` - 관계를 찾을 수 없음
+
+---
+
+### 5.5 관계 삭제
+
+**DELETE** `/relationships/:id`
+
+관계를 삭제합니다. GPT 답변 생성 시 기본 설정으로 돌아갑니다.
+
+**요청 Headers:**
+```
+Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+```
+
+**URL Parameters:**
+- `id`: Relationship ID (UUID)
+
+**응답 (200 OK):**
+```json
+{
+  "message": "Relationship deleted successfully"
+}
+```
+
+**에러 응답:**
+- `401 Unauthorized` - 인증되지 않음
+- `404 Not Found` - 관계를 찾을 수 없음
+
+---
+
+### 5.6 TypeScript 타입 정의
+
+```typescript
+interface CreateRelationshipDto {
+  partnerId: string;
+  category: RelationshipCategory;
+  politeness?: PolitenessLevel;
+  vibe?: VibeType;
+  emojiLevel?: number;
+}
+
+interface UpdateRelationshipDto {
+  category?: RelationshipCategory;
+  politeness?: PolitenessLevel;
+  vibe?: VibeType;
+  emojiLevel?: number;
+}
+
+interface Relationship {
+  id: string;
+  user_id: string;
+  partner_id: string;
+  category: RelationshipCategory;
+  politeness: PolitenessLevel;
+  vibe: VibeType;
+  emoji_level: number;
+  created_at: string;
+  updated_at: string;
+  partner: {
+    id: string;
+    name: string;
+    telegram_id: string;
+  };
+}
+```
+
+---
+
+### 5.7 프론트엔드 사용 예시
+
+```typescript
+import axios from 'axios';
+
+// 관계 생성
+async function createRelationship(partnerId: string, accessToken: string) {
+  const response = await axios.post<Relationship>(
+    'http://localhost:3000/relationships',
+    {
+      partnerId: partnerId,
+      category: 'FRIEND_CLOSE',
+      politeness: 'CASUAL',
+      vibe: 'PLAYFUL',
+      emojiLevel: 3
+    },
+    {
+      headers: {
+        'Authorization': `Bearer ${accessToken}`,
+        'Content-Type': 'application/json',
+      },
+    }
+  );
+  return response.data;
+}
+
+// 관계 목록 조회
+async function getRelationships(accessToken: string) {
+  const response = await axios.get<Relationship[]>(
+    'http://localhost:3000/relationships',
+    {
+      headers: {
+        'Authorization': `Bearer ${accessToken}`,
+      },
+    }
+  );
+  return response.data;
+}
+
+// 관계 수정
+async function updateRelationship(
+  relationshipId: string,
+  updates: UpdateRelationshipDto,
+  accessToken: string
+) {
+  const response = await axios.patch<Relationship>(
+    `http://localhost:3000/relationships/${relationshipId}`,
+    updates,
+    {
+      headers: {
+        'Authorization': `Bearer ${accessToken}`,
+        'Content-Type': 'application/json',
+      },
+    }
+  );
+  return response.data;
+}
+
+// 관계 삭제
+async function deleteRelationship(relationshipId: string, accessToken: string) {
+  const response = await axios.delete(
+    `http://localhost:3000/relationships/${relationshipId}`,
+    {
+      headers: {
+        'Authorization': `Bearer ${accessToken}`,
+      },
+    }
+  );
+  return response.data;
+}
+```
 
 ---
 
@@ -808,7 +1059,7 @@ interface TelegramUser {
 }
 ```
 
-### 5.4 TelegramChat
+### 6.4 TelegramChat
 ```typescript
 interface TelegramChat {
   id: number;
@@ -820,7 +1071,7 @@ interface TelegramChat {
 }
 ```
 
-### 5.5 SavedMessage
+### 6.5 SavedMessage
 ```typescript
 interface SavedMessage {
   id: number;
@@ -836,7 +1087,7 @@ interface SavedMessage {
 }
 ```
 
-### 5.6 RelationshipCategory (Enum)
+### 6.6 RelationshipCategory (Enum)
 ```typescript
 enum RelationshipCategory {
   FAMILY_ELDER_CLOSE = 'FAMILY_ELDER_CLOSE',
@@ -852,7 +1103,7 @@ enum RelationshipCategory {
 }
 ```
 
-### 5.7 PolitenessLevel (Enum)
+### 6.7 PolitenessLevel (Enum)
 ```typescript
 enum PolitenessLevel {
   FORMAL = 'FORMAL',       // 격식 존대 (-습니다)
@@ -861,7 +1112,7 @@ enum PolitenessLevel {
 }
 ```
 
-### 5.8 VibeType (Enum)
+### 6.8 VibeType (Enum)
 ```typescript
 enum VibeType {
   CALM = 'CALM',           // 차분
@@ -1013,26 +1264,22 @@ OPENAI_API_KEY=sk-your-openai-api-key
 
 ## 11. 다음 예정 기능
 
-### Phase 3: OpenAI 임베딩 (진행 예정)
-- `POST /openai/generate-embeddings` - tone_samples 임베딩 배치 생성
-
-### Phase 4: 텔레그램 DB 저장 + 채팅 목록 (진행 중) 🚧
+### Phase 5: 텔레그램 DB 저장 + 채팅 목록 (진행 예정) 🚧
 - `GET /telegram/conversations` - 대화 상대 목록 조회
 - `GET /telegram/conversations/:partnerId/messages` - 대화 히스토리 조회
-- `GET /relationships` - 관계 설정 목록 조회
-- `POST /relationships` - 관계 생성
 - 텔레그램 메시지 DB 영구 저장
-
-### Phase 5: GPT 통합 (진행 예정)
-- `POST /telegram/generate-reply` - 실제 AI 답변 생성 (GPT-4 + RAG)
-- RAG 기반 벡터 검색
-- Relationship 기반 프롬프트 생성
 
 ### 완료된 기능 ✅
 - ~~`POST /auth/register`~~ - 회원가입
 - ~~`POST /auth/login`~~ - 로그인
 - ~~`POST /kakao/upload`~~ - 카카오톡 txt 파일 업로드
 - ~~`GET /kakao/partners`~~ - Partner 목록 조회
+- ~~`POST /openai/generate-embeddings`~~ - 임베딩 생성
+- ~~`POST /gpt/generate-reply`~~ - GPT 답변 생성 (RAG + Relationship)
+- ~~`GET /relationships`~~ - 관계 목록 조회
+- ~~`POST /relationships`~~ - 관계 생성
+- ~~`PATCH /relationships/:id`~~ - 관계 수정
+- ~~`DELETE /relationships/:id`~~ - 관계 삭제
 
 ---
 

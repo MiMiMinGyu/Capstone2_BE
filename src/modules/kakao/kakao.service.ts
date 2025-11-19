@@ -59,36 +59,43 @@ export class KakaoService {
         );
       }
 
-      // 2. Partner 생성 또는 조회
-      const partner = await this.prisma.partner.create({
-        data: { name: partnerName },
-      });
+      // 2-4. 트랜잭션으로 Partner, Relationship, ToneSample 생성 (원자성 보장)
+      const { partner, relationship } = await this.prisma.$transaction(
+        async (tx) => {
+          // 2. Partner 생성
+          const partner = await tx.partner.create({
+            data: { name: partnerName },
+          });
 
-      // 3. Relationship 생성
-      const relationship = await this.prisma.relationship.create({
-        data: {
-          user_id: userId,
-          partner_id: partner.id,
-          category,
-          politeness: this.getDefaultPoliteness(category),
-          vibe: this.getDefaultVibe(category),
-          emoji_level: this.getDefaultEmojiLevel(category),
+          // 3. Relationship 생성
+          const relationship = await tx.relationship.create({
+            data: {
+              user_id: userId,
+              partner_id: partner.id,
+              category,
+              politeness: this.getDefaultPoliteness(category),
+              vibe: this.getDefaultVibe(category),
+              emoji_level: this.getDefaultEmojiLevel(category),
+            },
+          });
+
+          // 4. tone_samples 배치 저장
+          const toneSamplesData = myMessages.map((msg) => ({
+            user_id: userId,
+            text: msg.text,
+            category,
+            politeness: relationship.politeness,
+            vibe: relationship.vibe,
+            // embedding은 나중에 별도 API로 생성
+          }));
+
+          await tx.toneSample.createMany({
+            data: toneSamplesData,
+          });
+
+          return { partner, relationship };
         },
-      });
-
-      // 4. tone_samples 배치 저장
-      const toneSamplesData = myMessages.map((msg) => ({
-        user_id: userId,
-        text: msg.text,
-        category,
-        politeness: relationship.politeness,
-        vibe: relationship.vibe,
-        // embedding은 나중에 별도 API로 생성
-      }));
-
-      await this.prisma.toneSample.createMany({
-        data: toneSamplesData,
-      });
+      );
 
       // 5. 통계 정보 반환
       const statistics = this.parser.getStatistics(messages);
@@ -256,30 +263,32 @@ export class KakaoService {
           `Generated ${embeddings.length} embeddings, used ${totalTokens} tokens`,
         );
 
-        // 3. DB에 저장 (Prisma raw query - vector 타입 지원)
-        for (let j = 0; j < batch.length; j++) {
-          try {
-            const sample = batch[j];
-            const embedding = embeddings[j];
+        // 3. DB에 저장 (병렬 처리로 성능 최적화)
+        const updatePromises = batch.map(async (sample, j) => {
+          const embedding = embeddings[j];
+          const vectorString = `[${embedding.join(',')}]`;
 
-            // PostgreSQL vector 형식: '[1,2,3]' 형태의 문자열
-            const vectorString = `[${embedding.join(',')}]`;
+          return this.prisma.$executeRaw`
+            UPDATE tone_samples
+            SET embedding = ${vectorString}::vector
+            WHERE id = ${sample.id}::uuid
+          `;
+        });
 
-            await this.prisma.$executeRaw`
-              UPDATE tone_samples
-              SET embedding = ${vectorString}::vector
-              WHERE id = ${sample.id}::uuid
-            `;
+        const results = await Promise.allSettled(updatePromises);
 
+        // 결과 집계
+        results.forEach((result, index) => {
+          if (result.status === 'fulfilled') {
             processed++;
-          } catch (error) {
+          } else {
             this.logger.error(
-              `Failed to save embedding for sample ${batch[j].id}`,
-              error,
+              `Failed to save embedding for sample ${batch[index].id}`,
+              result.reason,
             );
             failed++;
           }
-        }
+        });
       } catch (error) {
         this.logger.error(
           `Failed to process batch starting at index ${i}`,

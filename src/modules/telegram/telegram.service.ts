@@ -4,6 +4,7 @@ import { Telegraf } from 'telegraf';
 import { TelegramMessage, SavedMessage, TelegramChat } from './interfaces';
 import { Subject, Observable } from 'rxjs';
 import { PrismaService } from '../../prisma/prisma.service';
+import { GptService } from '../gpt/gpt.service';
 
 @Injectable()
 export class TelegramService implements OnModuleInit {
@@ -23,6 +24,7 @@ export class TelegramService implements OnModuleInit {
   constructor(
     private readonly config: ConfigService,
     private readonly prisma: PrismaService,
+    private readonly gptService: GptService,
   ) {
     this.defaultUserId = this.config.get<string>('DEFAULT_USER_ID') || '';
     if (!this.defaultUserId) {
@@ -160,58 +162,62 @@ export class TelegramService implements OnModuleInit {
         return;
       }
 
-      // 1. User 찾기 (봇 소유자 - 서비스 회원)
-      const user = await this.prisma.user.findUnique({
-        where: { id: this.defaultUserId },
-      });
+      // 1-4. 트랜잭션으로 User 조회, Partner/Conversation upsert, Message 생성 (원자성 보장)
+      const savedMessage = await this.prisma.$transaction(async (tx) => {
+        // 1. User 찾기 (봇 소유자 - 서비스 회원)
+        const user = await tx.user.findUnique({
+          where: { id: this.defaultUserId },
+        });
 
-      if (!user) {
-        this.logger.error(`User not found: ${this.defaultUserId}`);
-        return;
-      }
+        if (!user) {
+          throw new Error(`User not found: ${this.defaultUserId}`);
+        }
 
-      // 2. Partner upsert (telegram_id 기준 - 메시지 발신자)
-      // 처음 대화하는 사람도 자동으로 Partner 생성
-      const partner = await this.prisma.partner.upsert({
-        where: { telegram_id: telegramId },
-        create: {
-          name: message.from?.first_name || 'Unknown',
-          telegram_id: telegramId,
-        },
-        update: {
-          // 이름이 변경되었을 수 있으므로 업데이트
-          name: message.from?.first_name || 'Unknown',
-        },
-      });
+        // 2. Partner upsert (telegram_id 기준 - 메시지 발신자)
+        // 처음 대화하는 사람도 자동으로 Partner 생성
+        const partner = await tx.partner.upsert({
+          where: { telegram_id: telegramId },
+          create: {
+            name: message.from?.first_name || 'Unknown',
+            telegram_id: telegramId,
+          },
+          update: {
+            // 이름이 변경되었을 수 있으므로 업데이트
+            name: message.from?.first_name || 'Unknown',
+          },
+        });
 
-      this.logger.log(
-        `Partner 확인/생성 완료: ${partner.name} (${partner.id})`,
-      );
+        this.logger.log(
+          `Partner 확인/생성 완료: ${partner.name} (${partner.id})`,
+        );
 
-      // 3. Conversation upsert
-      const conversation = await this.prisma.conversation.upsert({
-        where: {
-          user_id_partner_id: {
+        // 3. Conversation upsert
+        const conversation = await tx.conversation.upsert({
+          where: {
+            user_id_partner_id: {
+              user_id: user.id,
+              partner_id: partner.id,
+            },
+          },
+          create: {
             user_id: user.id,
             partner_id: partner.id,
           },
-        },
-        create: {
-          user_id: user.id,
-          partner_id: partner.id,
-        },
-        update: {
-          updated_at: new Date(),
-        },
-      });
+          update: {
+            updated_at: new Date(),
+          },
+        });
 
-      // 4. Message 저장
-      const savedMessage = await this.prisma.message.create({
-        data: {
-          conversation_id: conversation.id,
-          role: 'user',
-          text: message.text || '',
-        },
+        // 4. Message 저장
+        const savedMessage = await tx.message.create({
+          data: {
+            conversation_id: conversation.id,
+            role: 'user',
+            text: message.text || '',
+          },
+        });
+
+        return savedMessage;
       });
 
       this.logger.log(`메시지 DB 저장 완료: ${savedMessage.id}`);
@@ -247,34 +253,59 @@ export class TelegramService implements OnModuleInit {
     return this.receivedMessages.find((msg) => msg.id === id);
   }
 
-  // AI 답변 추천 생성 (추후 Flask AI 서버와 연동 예정)
+  // GPT 기반 답변 생성 (Phase 4: Telegram + GPT 통합)
   async generateAIRecommendations(messageId: number): Promise<string[]> {
     const message = this.getMessageById(messageId);
     if (!message) {
       throw new Error('Message not found');
     }
 
-    this.logger.log(`Generating AI recommendations for: ${message.text}`);
+    this.logger.log(`[Telegram] GPT 답변 생성 시작: ${message.text}`);
 
-    // 실제 AI 서버 호출 시뮬레이션 (지연 추가)
-    await new Promise((resolve) => setTimeout(resolve, 500));
+    try {
+      // 1. telegram_id로 Partner 찾기
+      const telegramId = message.from?.id?.toString();
+      if (!telegramId) {
+        throw new Error('Telegram ID not found in message');
+      }
 
-    // AI 추천 답변 (임시 하드코딩)
-    const recommendations = [
-      `지금 연락하기 힘든 상황이라 이따 연락할게.`,
-      `${message.text}? 좋지.`,
-      `나 아무거나 다 괜찮아`,
-      `응, 알겠어.`,
-      `오케이 땡큐~`,
-    ];
+      const partner = await this.prisma.partner.findUnique({
+        where: { telegram_id: telegramId },
+      });
 
-    // 메시지에 AI 추천 답변 저장
-    message.aiRecommendations = recommendations;
-    this.logger.log(
-      `AI recommendations generated: ${JSON.stringify(recommendations)}`,
-    );
+      if (!partner) {
+        throw new Error(`Partner not found for telegram_id: ${telegramId}`);
+      }
 
-    return recommendations;
+      this.logger.log(
+        `[Telegram] Partner 조회 완료: ${partner.name} (${partner.id})`,
+      );
+
+      // 2. GptService를 통해 답변 생성
+      const gptResponse = await this.gptService.generateReply(
+        this.defaultUserId,
+        partner.id,
+        message.text || '',
+      );
+
+      this.logger.log(`[Telegram] GPT 답변 생성 완료: ${gptResponse.reply}`);
+
+      // 3. 단일 답변을 배열로 반환 (기존 API 호환성 유지)
+      const recommendations = [gptResponse.reply];
+
+      // 메시지에 AI 추천 답변 저장
+      message.aiRecommendations = recommendations;
+
+      return recommendations;
+    } catch (error) {
+      this.logger.error(
+        `[Telegram] GPT 답변 생성 실패: ${error instanceof Error ? error.message : String(error)}`,
+      );
+      // 에러 발생 시 기본 답변 반환
+      const fallbackReply = '죄송합니다. 지금은 답변하기 어려운 상황입니다.';
+      message.aiRecommendations = [fallbackReply];
+      return [fallbackReply];
+    }
   }
 
   // 사용자가 선택한 답변 전송
