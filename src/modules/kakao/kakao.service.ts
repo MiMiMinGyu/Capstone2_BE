@@ -97,8 +97,8 @@ export class KakaoService {
         },
       );
 
-      // 5. 통계 정보 반환
-      const statistics = this.parser.getStatistics(messages);
+      // 5. 통계 정보 반환 (사용자 이름 전달)
+      const statistics = this.parser.getStatistics(messages, user.name);
 
       return {
         partner_id: partner.id,
