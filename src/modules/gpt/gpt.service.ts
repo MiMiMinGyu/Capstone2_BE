@@ -3,6 +3,7 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { OpenaiService } from '../openai/openai.service';
 import {
   GenerateReplyResponse,
+  GenerateMultipleRepliesResponse,
   RecentContext,
   ReceiverInfo,
   SimilarContext,
@@ -469,5 +470,229 @@ ${styleProfile.characteristics.length > 0 ? styleProfile.characteristics.join('\
 
     this.logger.log(`[GPT] ✅ 말투 설정 삭제 완료 (기본값으로 리셋)`);
     return { message: 'Style profile deleted successfully' };
+  }
+
+  /**
+   * 다중 답변 생성 (긍정/부정)
+   * @param userId 사용자 ID
+   * @param partnerId 대화 상대 Partner ID
+   * @param message 수신한 메시지
+   */
+  async generateMultipleReplies(
+    userId: string,
+    partnerId: string,
+    message: string,
+  ): Promise<GenerateMultipleRepliesResponse> {
+    this.logger.log(
+      `[GPT] 📨 다중 답변 생성 요청 - userId: ${userId}, partnerId: ${partnerId}, message: "${message}"`,
+    );
+
+    // 1. 사용자 정보 조회
+    this.logger.log(`[GPT] 1️⃣ 사용자 정보 조회 중...`);
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+    });
+
+    if (!user) {
+      this.logger.error(`[GPT] ❌ 사용자를 찾을 수 없음: ${userId}`);
+      throw new NotFoundException(`User not found: ${userId}`);
+    }
+
+    const userName = user.name || 'User';
+    this.logger.log(`[GPT] ✅ 사용자 찾음: ${userName} (${user.email})`);
+
+    // 2. 컨텍스트 수집 (병렬 처리) + 사용자 정의 지침 조회
+    this.logger.log(`[GPT] 2️⃣ 컨텍스트 수집 시작 (5개 병렬 쿼리)...`);
+    const [
+      recentContext,
+      similarContext,
+      styleProfile,
+      receiverInfo,
+      userStyleProfile,
+    ] = await Promise.all([
+      this.getRecentContext(userId, partnerId, 20),
+      this.getSimilarContext(userId, message, 15),
+      this.getStyleProfile(userId),
+      this.getReceiverInfo(userId, partnerId),
+      this.prisma.$queryRaw<Array<{ custom_guidelines: string | null }>>`
+        SELECT custom_guidelines
+        FROM style_profiles
+        WHERE user_id = ${userId}::uuid
+        LIMIT 1
+      `.then((rows) => rows[0] || null),
+    ]);
+
+    const customGuidelines = userStyleProfile?.custom_guidelines || undefined;
+
+    this.logger.log(
+      `[GPT] ✅ 컨텍스트 수집 완료 - 최근 메시지: ${recentContext.messages.length}개, 유사 예시: ${similarContext.examples.length}개, 사용자 지침: ${customGuidelines ? '있음' : '기본값'}`,
+    );
+
+    // 3. 프롬프트 구성 (긍정/부정 답변 요청)
+    this.logger.log(`[GPT] 3️⃣ GPT 프롬프트 구성 중 (긍정/부정 답변)...`);
+    const messages = this.buildMultipleRepliesPrompt(
+      userName,
+      styleProfile,
+      recentContext,
+      similarContext,
+      receiverInfo,
+      message,
+      customGuidelines,
+    );
+    this.logger.log(
+      `[GPT] ✅ 프롬프트 구성 완료 (메시지 ${messages.length}개)`,
+    );
+
+    // 4. GPT API 호출
+    this.logger.log(
+      `[GPT] 4️⃣ OpenAI GPT API 호출 중... (temperature: 0.7, maxTokens: 150)`,
+    );
+    const completion = await this.openai.generateChatCompletion(messages, {
+      temperature: 0.7,
+      maxTokens: 150, // 2개 답변 생성을 위해 토큰 증가
+    });
+
+    const reply = completion.content;
+    this.logger.log(`[GPT] ✅ GPT 답변 생성 성공: "${reply}"`);
+
+    // 5. 응답 파싱 (YES:/NO: 형식)
+    const { positiveReply, negativeReply } = this.parseMultipleReplies(reply);
+
+    this.logger.log(
+      `[GPT] ✅ 답변 파싱 완료 - 긍정: "${positiveReply}", 부정: "${negativeReply}"`,
+    );
+
+    // 6. 응답 반환
+    const response: GenerateMultipleRepliesResponse = {
+      positiveReply,
+      negativeReply,
+      context: {
+        recentMessages: recentContext.messages.map((m) => m.content),
+        similarExamples: similarContext.examples.map((e) => e.text),
+        styleProfile: styleProfile.characteristics.join(', '),
+        receiverInfo: `${receiverInfo.name} (${receiverInfo.category})`,
+      },
+    };
+
+    this.logger.log(`[GPT] 🎉 다중 답변 반환 완료`);
+    return response;
+  }
+
+  /**
+   * 긍정/부정 답변 생성 프롬프트 구성
+   */
+  private buildMultipleRepliesPrompt(
+    userName: string,
+    styleProfile: StyleProfile,
+    recentContext: RecentContext,
+    similarContext: SimilarContext,
+    receiverInfo: ReceiverInfo,
+    message: string,
+    customGuidelines?: string,
+  ): ChatMessage[] {
+    // 말투 예시 텍스트 (유사도 높은 순)
+    const profileText = similarContext.examples.map((ex) => ex.text).join('\n');
+
+    // 최근 대화 텍스트
+    const recentMessagesText = recentContext.messages
+      .map((msg) => `${msg.sender}: ${msg.content}`)
+      .join('\n');
+
+    // 기본 제약 조건
+    const defaultConstraints = `
+[답변 제약 조건]
+- 제공된 말투 예시를 참고하여 자연스럽게 답변
+- 대화 상대와의 관계(${receiverInfo.category})에 맞는 격식 수준 유지
+- 관계 정보가 없는 대상(ACQUAINTANCE_CASUAL)에게는 격식 있는 존댓말 사용
+- 최근 대화 맥락을 고려하여 일관성 있는 톤 유지
+`;
+
+    // 사용자 정의 지침 또는 기본 제약 조건
+    const constraints = customGuidelines
+      ? `\n[🚨 CRITICAL: 사용자 정의 말투 규칙 - 반드시 준수할 것]\n${customGuidelines}\n`
+      : defaultConstraints;
+
+    // System prompt (긍정/부정 답변 생성 요청)
+    const systemContent = `너는 사용자 '${userName}'의 말투를 모방하는 AI야.
+
+${constraints}
+
+⚠️ 위 규칙은 절대적이며, 어떤 경우에도 위반해서는 안 됨. 특히 문장부호 사용 금지 규칙이 있다면 반드시 지켜야 함.
+
+아래 대화록은 ${userName}의 실제 말투 예시야.
+${userName}의 문장 리듬, 감탄사, 억양, 말끝, 문장 길이를 세밀하게 분석해 그대로 반영해.
+
+[말투 예시]
+${profileText}
+
+[대화 상대 정보]
+이름: ${receiverInfo.name}
+관계: ${receiverInfo.category}
+${receiverInfo.relationshipDescription ? `설명: ${receiverInfo.relationshipDescription}` : ''}
+
+[최근 대화 맥락]
+${recentMessagesText || '(최근 대화 없음)'}
+
+[말투 분석 결과]
+${styleProfile.characteristics.length > 0 ? styleProfile.characteristics.join('\n') : '(분석 중)'}
+
+**중요: 아래 메시지에 대해 2가지 답변을 생성해줘:**
+1. **긍정적인 답변 (YES)**: 동의하거나 수락하는 긍정적인 반응
+2. **부정적인 답변 (NO)**: 거절하거나 불가능하다는 부정적인 반응
+
+각 답변은 ${userName}의 말투를 완벽히 모방하며, 최대 2-3문장 이내로 자연스럽고 짧게 작성해.
+
+**응답 형식 (반드시 준수):**
+YES: [긍정 답변]
+NO: [부정 답변]`;
+
+    const userContent = `${receiverInfo.name}: ${message}`;
+
+    return [
+      { role: 'system' as const, content: systemContent },
+      { role: 'user' as const, content: userContent },
+    ];
+  }
+
+  /**
+   * GPT 응답에서 긍정/부정 답변 파싱
+   */
+  private parseMultipleReplies(gptResponse: string): {
+    positiveReply: string;
+    negativeReply: string;
+  } {
+    const lines = gptResponse.split('\n');
+
+    // YES: 로 시작하는 라인 찾기
+    const positiveLine = lines.find(
+      (line) =>
+        line.trim().startsWith('YES:') || line.trim().startsWith('긍정:'),
+    );
+    // NO: 로 시작하는 라인 찾기
+    const negativeLine = lines.find(
+      (line) =>
+        line.trim().startsWith('NO:') || line.trim().startsWith('부정:'),
+    );
+
+    let positiveReply =
+      positiveLine
+        ?.replace(/^(YES:|긍정:)/i, '')
+        .trim() || '알겠습니다!';
+    let negativeReply =
+      negativeLine
+        ?.replace(/^(NO:|부정:)/i, '')
+        .trim() || '죄송하지만 어렵습니다.';
+
+    // 파싱 실패 시 폴백: 전체 응답을 줄바꿈으로 분리
+    if (!positiveLine || !negativeLine) {
+      this.logger.warn(
+        `[GPT] ⚠️ 파싱 실패, 폴백 사용. 원본: "${gptResponse}"`,
+      );
+      const fallbackLines = gptResponse.split('\n').filter((l) => l.trim());
+      positiveReply = fallbackLines[0]?.trim() || '알겠습니다!';
+      negativeReply = fallbackLines[1]?.trim() || '죄송하지만 어렵습니다.';
+    }
+
+    return { positiveReply, negativeReply };
   }
 }

@@ -21,6 +21,20 @@ export interface GenerateReplyResponse {
 }
 
 /**
+ * 다중 답변 생성 응답 (긍정/부정)
+ */
+export interface GenerateMultipleRepliesResponse {
+  positiveReply: string; // 긍정적인 답변 (동의/수락)
+  negativeReply: string; // 부정적인 답변 (거절/불가)
+  context?: {
+    recentMessages?: string[]; // 최근 대화 맥락
+    similarExamples?: string[]; // 유사한 말투 예시
+    styleProfile?: string; // 말투 프로필 정보
+    receiverInfo?: string; // 수신자 관계 정보
+  };
+}
+
+/**
  * 최근 대화 컨텍스트
  */
 export interface RecentContext {

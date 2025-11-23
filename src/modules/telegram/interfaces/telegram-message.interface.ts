@@ -36,6 +36,14 @@ export interface SavedMessage extends TelegramMessage {
   selectedReply?: string;
 }
 
+// 추천 답변 인터페이스
+export interface Recommendation {
+  messageId: string;
+  text: string;
+  tone?: 'positive' | 'negative';
+  isDefault?: boolean;
+}
+
 // API 응답 인터페이스들
 export interface MessageListResponse {
   messages: SavedMessage[];
@@ -43,8 +51,7 @@ export interface MessageListResponse {
 }
 
 export interface RecommendationsResponse {
-  messageId: number;
-  recommendations: string[];
+  recommendations: Recommendation[];
 }
 
 export interface ReplyResponse {

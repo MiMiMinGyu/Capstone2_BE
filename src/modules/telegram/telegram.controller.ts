@@ -81,14 +81,17 @@ export class TelegramController {
 
   // AI 추천 답변 생성 API
   @Post('recommendations')
-  @ApiOperation({ summary: 'AI 추천 답변 생성' })
-  @ApiResponse({ status: 200, description: 'AI 추천 답변 목록' })
+  @ApiOperation({ summary: 'AI 추천 답변 생성 (긍정/부정/Default)' })
+  @ApiResponse({
+    status: 200,
+    description: 'AI 추천 답변 목록 (긍정, 부정, Default 총 3개)',
+  })
   @ApiResponse({ status: 404, description: '메시지를 찾을 수 없음' })
   async generateRecommendations(@Body() dto: GenerateRecommendationsDto) {
     const recommendations = await this.tg.generateAIRecommendations(
       dto.messageId,
     );
-    return { messageId: dto.messageId, recommendations };
+    return { recommendations };
   }
 
   // 사용자 선택 답변 전송 API

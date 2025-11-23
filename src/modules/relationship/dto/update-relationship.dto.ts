@@ -5,31 +5,31 @@ export class UpdateRelationshipDto {
   @ApiProperty({
     description: '관계 카테고리',
     enum: [
+      'FAMILY_ELDER_CLOSE',
+      'FAMILY_SIBLING_ELDER',
+      'FAMILY_SIBLING_YOUNGER',
+      'PARTNER_INTIMATE',
       'FRIEND_CLOSE',
-      'FRIEND_CASUAL',
-      'FAMILY',
-      'COWORKER',
-      'SENIOR',
-      'JUNIOR',
-      'ROMANTIC_PARTNER',
-      'ACQUAINTANCE_CLOSE',
       'ACQUAINTANCE_CASUAL',
-      'PROFESSIONAL',
+      'WORK_SENIOR_FORMAL',
+      'WORK_SENIOR_FRIENDLY',
+      'WORK_PEER',
+      'WORK_JUNIOR',
     ],
     required: false,
   })
   @IsOptional()
   @IsEnum([
+    'FAMILY_ELDER_CLOSE',
+    'FAMILY_SIBLING_ELDER',
+    'FAMILY_SIBLING_YOUNGER',
+    'PARTNER_INTIMATE',
     'FRIEND_CLOSE',
-    'FRIEND_CASUAL',
-    'FAMILY',
-    'COWORKER',
-    'SENIOR',
-    'JUNIOR',
-    'ROMANTIC_PARTNER',
-    'ACQUAINTANCE_CLOSE',
     'ACQUAINTANCE_CASUAL',
-    'PROFESSIONAL',
+    'WORK_SENIOR_FORMAL',
+    'WORK_SENIOR_FRIENDLY',
+    'WORK_PEER',
+    'WORK_JUNIOR',
   ])
   category?: string;
 
@@ -44,11 +44,11 @@ export class UpdateRelationshipDto {
 
   @ApiProperty({
     description: '대화 분위기',
-    enum: ['SERIOUS', 'CALM', 'PLAYFUL', 'ENERGETIC'],
+    enum: ['CALM', 'DIRECT', 'PLAYFUL', 'CARING'],
     required: false,
   })
   @IsOptional()
-  @IsEnum(['SERIOUS', 'CALM', 'PLAYFUL', 'ENERGETIC'])
+  @IsEnum(['CALM', 'DIRECT', 'PLAYFUL', 'CARING'])
   vibe?: string;
 
   @ApiProperty({

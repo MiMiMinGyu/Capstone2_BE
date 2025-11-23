@@ -1,7 +1,12 @@
 import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Telegraf } from 'telegraf';
-import { TelegramMessage, SavedMessage, TelegramChat } from './interfaces';
+import {
+  TelegramMessage,
+  SavedMessage,
+  TelegramChat,
+  Recommendation,
+} from './interfaces';
 import { Subject, Observable } from 'rxjs';
 import { PrismaService } from '../../prisma/prisma.service';
 import { GptService } from '../gpt/gpt.service';
@@ -254,7 +259,9 @@ export class TelegramService implements OnModuleInit {
   }
 
   // GPT 기반 답변 생성 (Phase 4: Telegram + GPT 통합)
-  async generateAIRecommendations(messageId: number): Promise<string[]> {
+  async generateAIRecommendations(
+    messageId: number,
+  ): Promise<Recommendation[]> {
     const message = this.getMessageById(messageId);
     if (!message) {
       throw new Error('Message not found');
@@ -281,30 +288,66 @@ export class TelegramService implements OnModuleInit {
         `[Telegram] Partner 조회 완료: ${partner.name} (${partner.id})`,
       );
 
-      // 2. GptService를 통해 답변 생성
-      const gptResponse = await this.gptService.generateReply(
+      // 2. GptService를 통해 긍정/부정 답변 생성
+      const gptResponse = await this.gptService.generateMultipleReplies(
         this.defaultUserId,
         partner.id,
         message.text || '',
       );
 
-      this.logger.log(`[Telegram] GPT 답변 생성 완료: ${gptResponse.reply}`);
+      this.logger.log(
+        `[Telegram] GPT 답변 생성 완료 - 긍정: "${gptResponse.positiveReply}", 부정: "${gptResponse.negativeReply}"`,
+      );
 
-      // 3. 단일 답변을 배열로 반환 (기존 API 호환성 유지)
-      const recommendations = [gptResponse.reply];
+      // 3. 3개 답변 구성: 긍정, 부정, Default
+      const recommendations: Recommendation[] = [
+        {
+          messageId: messageId.toString(),
+          text: gptResponse.positiveReply,
+          tone: 'positive',
+        },
+        {
+          messageId: messageId.toString(),
+          text: gptResponse.negativeReply,
+          tone: 'negative',
+        },
+        {
+          messageId: messageId.toString(),
+          text: '지금은 답장하기 힘드니, 최대한 빠르게 확인하겠습니다!',
+          isDefault: true,
+        },
+      ];
 
-      // 메시지에 AI 추천 답변 저장
-      message.aiRecommendations = recommendations;
+      // 메시지에 AI 추천 답변 저장 (하위 호환성 유지)
+      message.aiRecommendations = recommendations.map((r) => r.text);
 
       return recommendations;
     } catch (error) {
       this.logger.error(
         `[Telegram] GPT 답변 생성 실패: ${error instanceof Error ? error.message : String(error)}`,
       );
-      // 에러 발생 시 기본 답변 반환
-      const fallbackReply = '죄송합니다. 지금은 답변하기 어려운 상황입니다.';
-      message.aiRecommendations = [fallbackReply];
-      return [fallbackReply];
+
+      // 에러 발생 시 폴백 답변 반환
+      const fallbackRecommendations: Recommendation[] = [
+        {
+          messageId: messageId.toString(),
+          text: '알겠습니다!',
+          tone: 'positive',
+        },
+        {
+          messageId: messageId.toString(),
+          text: '죄송하지만 어렵습니다.',
+          tone: 'negative',
+        },
+        {
+          messageId: messageId.toString(),
+          text: '지금은 답장하기 힘드니, 최대한 빠르게 확인하겠습니다!',
+          isDefault: true,
+        },
+      ];
+
+      message.aiRecommendations = fallbackRecommendations.map((r) => r.text);
+      return fallbackRecommendations;
     }
   }
 
