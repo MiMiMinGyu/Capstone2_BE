@@ -7,10 +7,12 @@ import {
   MessageEvent,
   Param,
   Query,
+  UnauthorizedException,
 } from '@nestjs/common';
-import { ApiTags, ApiOperation, ApiResponse } from '@nestjs/swagger';
+import { ApiTags, ApiOperation, ApiResponse, ApiQuery } from '@nestjs/swagger';
 import { Observable } from 'rxjs';
 import { map } from 'rxjs/operators';
+import { JwtService } from '@nestjs/jwt';
 import { TelegramService } from './telegram.service';
 import {
   SendMessageDto,
@@ -22,7 +24,10 @@ import {
 @ApiTags('telegram')
 @Controller('telegram')
 export class TelegramController {
-  constructor(private readonly tg: TelegramService) {}
+  constructor(
+    private readonly tg: TelegramService,
+    private readonly jwtService: JwtService,
+  ) {}
 
   // 프론트엔드에서 호출하는 메시지 전송 API
   @Post('send')
@@ -118,13 +123,48 @@ export class TelegramController {
   // SSE 엔드포인트 - 새 메시지 실시간 알림
   @Get('events')
   @Sse()
-  @ApiOperation({ summary: '새 메시지 실시간 알림 (SSE)' })
+  @ApiOperation({
+    summary: '새 메시지 실시간 알림 (SSE)',
+    description:
+      '쿼리 파라미터로 JWT 토큰을 전달해야 합니다. 예: /telegram/events?token=your_jwt_token',
+  })
+  @ApiQuery({
+    name: 'token',
+    required: true,
+    description: 'JWT 액세스 토큰',
+    example: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...',
+  })
   @ApiResponse({ status: 200, description: '실시간 메시지 스트림' })
-  getMessageEvents(): Observable<MessageEvent> {
-    console.log('📡 SSE 연결 시작됨');
-    return this.tg.getMessageEventStream().pipe(
+  @ApiResponse({
+    status: 401,
+    description: '인증 실패 (토큰 없음 또는 만료됨)',
+  })
+  getMessageEvents(@Query('token') token: string): Observable<MessageEvent> {
+    // 1. 토큰 검증
+    if (!token) {
+      throw new UnauthorizedException(
+        '토큰이 제공되지 않았습니다. 쿼리 파라미터로 token을 전달해주세요.',
+      );
+    }
+
+    let userId: string;
+    try {
+      const payload = this.jwtService.verify<{ id: string }>(token);
+      userId = payload.id;
+      console.log(`📡 SSE 연결 시작됨 - userId: ${userId}`);
+    } catch (error) {
+      const errorMessage =
+        error instanceof Error ? error.message : 'Invalid token';
+      console.error(`❌ SSE 인증 실패: ${errorMessage}`);
+      throw new UnauthorizedException('유효하지 않거나 만료된 토큰입니다.');
+    }
+
+    // 2. 해당 사용자의 메시지만 필터링하여 스트림 반환
+    return this.tg.getMessageEventStream(userId).pipe(
       map((message) => {
-        console.log(`📤 SSE 메시지 전송: ${message.id} - ${message.text}`);
+        console.log(
+          `📤 SSE 메시지 전송 (userId: ${userId}): ${message.id} - ${message.text}`,
+        );
         return {
           data: JSON.stringify(message),
           type: 'newMessage',

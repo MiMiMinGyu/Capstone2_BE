@@ -8,6 +8,7 @@ import {
   Recommendation,
 } from './interfaces';
 import { Subject, Observable } from 'rxjs';
+import { filter } from 'rxjs/operators';
 import { PrismaService } from '../../prisma/prisma.service';
 import { GptService } from '../gpt/gpt.service';
 
@@ -377,9 +378,16 @@ export class TelegramService implements OnModuleInit {
     }
   }
 
-  // SSE 스트림 제공 메서드
-  getMessageEventStream(): Observable<SavedMessage> {
-    return this.messageEventSubject.asObservable();
+  // SSE 스트림 제공 메서드 (userId별 필터링)
+  getMessageEventStream(userId: string): Observable<SavedMessage> {
+    return this.messageEventSubject.asObservable().pipe(
+      filter(() => {
+        // 메시지의 수신자가 해당 userId인 경우만 전송
+        // 현재는 DEFAULT_USER_ID와 비교 (모든 메시지가 이 사용자에게 전송됨)
+        // TODO: 추후 multi-user 지원 시 message에 userId 필드 추가 필요
+        return userId === this.defaultUserId;
+      }),
+    );
   }
 
   // 채팅 목록 조회 (대화 상대 목록)

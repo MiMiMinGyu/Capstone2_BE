@@ -4,7 +4,7 @@
 
 ## 📢 중요 공지
 
-백엔드 API가 업데이트되었습니다. **일부 enum 값이 변경**되었으니 프론트엔드 코드를 업데이트해주세요.
+백엔드 API가 업데이트되었습니다. **일부 enum 값이 변경**되었고, **SSE 인증 방식이 추가**되었으니 프론트엔드 코드를 업데이트해주세요.
 
 ---
 
@@ -199,6 +199,116 @@ recommendations.forEach(rec => {
 
 ---
 
+## 🔐 SSE 인증 방식 업데이트 (필수)
+
+### 변경 사항
+기존에 인증 없이 접근 가능했던 SSE 엔드포인트에 **JWT 토큰 인증이 추가**되었습니다.
+
+### 기존 방식 (더 이상 작동하지 않음 ❌)
+```typescript
+// ❌ 인증 없이 연결 - 401 에러 발생
+const eventSource = new EventSource('http://localhost:3000/telegram/events');
+```
+
+### 신규 방식 (필수 ✅)
+```typescript
+// ✅ 쿼리 파라미터로 JWT 토큰 전달
+const accessToken = localStorage.getItem('accessToken');
+const eventSource = new EventSource(
+  `http://localhost:3000/telegram/events?token=${accessToken}`
+);
+
+// 메시지 수신
+eventSource.addEventListener('newMessage', (event) => {
+  const message = JSON.parse(event.data);
+  console.log('새 메시지:', message);
+});
+
+// 에러 처리 (401 토큰 만료)
+eventSource.onerror = (error) => {
+  console.error('SSE 연결 실패:', error);
+  eventSource.close();
+
+  // 토큰 갱신 후 재연결
+  refreshAccessToken().then((newToken) => {
+    const newEventSource = new EventSource(
+      `http://localhost:3000/telegram/events?token=${newToken}`
+    );
+    // 이벤트 리스너 다시 등록
+  });
+};
+```
+
+### 에러 응답
+| 상태 코드 | 설명 | 대응 방법 |
+|----------|------|----------|
+| **401 Unauthorized** | 토큰 없음 | 쿼리 파라미터에 `token` 추가 |
+| **401 Unauthorized** | 토큰 만료 | Refresh Token으로 토큰 갱신 후 재연결 |
+| **401 Unauthorized** | 유효하지 않은 토큰 | 로그인 다시 진행 |
+
+### 보안 개선 사항
+✅ **인증된 사용자만 SSE 연결 가능**
+✅ **userId별 메시지 필터링** (다른 사용자의 메시지 차단)
+✅ **토큰 만료 시 자동 차단**
+
+### 토큰 갱신 플로우 예시
+```typescript
+class SSEManager {
+  private eventSource: EventSource | null = null;
+
+  connect(token: string) {
+    this.disconnect();
+
+    this.eventSource = new EventSource(
+      `${API_URL}/telegram/events?token=${token}`
+    );
+
+    this.eventSource.addEventListener('newMessage', (event) => {
+      const message = JSON.parse(event.data);
+      this.handleNewMessage(message);
+    });
+
+    this.eventSource.onerror = async () => {
+      console.error('SSE 연결 끊김');
+      this.disconnect();
+
+      // 토큰 갱신 시도
+      try {
+        const newToken = await this.refreshToken();
+        this.connect(newToken); // 재연결
+      } catch (error) {
+        console.error('토큰 갱신 실패:', error);
+        // 로그인 페이지로 리다이렉트
+      }
+    };
+  }
+
+  disconnect() {
+    if (this.eventSource) {
+      this.eventSource.close();
+      this.eventSource = null;
+    }
+  }
+
+  async refreshToken(): Promise<string> {
+    const refreshToken = localStorage.getItem('refreshToken');
+    const response = await fetch(`${API_URL}/auth/refresh`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ refreshToken }),
+    });
+
+    if (!response.ok) throw new Error('토큰 갱신 실패');
+
+    const { accessToken } = await response.json();
+    localStorage.setItem('accessToken', accessToken);
+    return accessToken;
+  }
+}
+```
+
+---
+
 ## 📌 중요 참고사항
 
 ### 1. 관계 미설정 시 기본 동작
@@ -218,6 +328,13 @@ recommendations.forEach(rec => {
 
 ## 🔧 프론트엔드 수정 작업 체크리스트
 
+### 필수 작업
+
+- [ ] **SSE 인증 방식 업데이트** (가장 중요!)
+  - [ ] SSE 연결 시 쿼리 파라미터로 JWT 토큰 전달
+  - [ ] 401 에러 처리 로직 구현
+  - [ ] 토큰 갱신 후 SSE 재연결 로직 구현
+
 - [ ] `vibe` enum 값 변경 (4개 → 4개, 내용 변경)
   - [ ] SERIOUS 삭제, DIRECT 추가
   - [ ] ENERGETIC 삭제, CARING 추가
@@ -226,7 +343,9 @@ recommendations.forEach(rec => {
   - [ ] 10가지 세밀한 카테고리로 교체
   - [ ] 드롭다운 UI 업데이트
 
-- [ ] 추천 답변 UI 업데이트 (선택사항)
+### 선택 작업
+
+- [ ] 추천 답변 UI 업데이트
   - [ ] `tone` 필드 활용하여 답변 구분 표시
   - [ ] `isDefault` 필드 활용하여 기본 답변 강조
 
@@ -236,7 +355,10 @@ recommendations.forEach(rec => {
 
 업데이트 과정에서 문제가 발생하거나 궁금한 사항이 있으면 백엔드 팀에 문의해주세요.
 
-**예상 작업 시간:** 10-15분 (enum 값만 업데이트)
+**예상 작업 시간:**
+- SSE 인증 업데이트: 20-30분 (토큰 갱신 로직 포함)
+- Enum 값 변경: 10-15분
+- **총 예상 시간: 약 30-45분**
 
 ---
 
