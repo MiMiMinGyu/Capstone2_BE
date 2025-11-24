@@ -259,39 +259,43 @@ export class TelegramService implements OnModuleInit {
     return this.receivedMessages.find((msg) => msg.id === id);
   }
 
-  // GPT 기반 답변 생성 (Phase 4: Telegram + GPT 통합)
+  // GPT 기반 답변 생성 (DB 기반)
   async generateAIRecommendations(
-    messageId: number,
+    messageId: string,
   ): Promise<Recommendation[]> {
-    const message = this.getMessageById(messageId);
-    if (!message) {
-      throw new Error('Message not found');
-    }
-
-    this.logger.log(`[Telegram] GPT 답변 생성 시작: ${message.text}`);
+    this.logger.log(`[Telegram] GPT 답변 생성 시작 - messageId: ${messageId}`);
 
     try {
-      // 1. telegram_id로 Partner 찾기
-      const telegramId = message.from?.id?.toString();
-      if (!telegramId) {
-        throw new Error('Telegram ID not found in message');
-      }
-
-      const partner = await this.prisma.partner.findUnique({
-        where: { telegram_id: telegramId },
+      // 1. DB에서 메시지 조회
+      const message = await this.prisma.message.findUnique({
+        where: { id: messageId },
+        include: {
+          conversation: {
+            include: {
+              partner: true,
+            },
+          },
+        },
       });
 
-      if (!partner) {
-        throw new Error(`Partner not found for telegram_id: ${telegramId}`);
+      if (!message) {
+        throw new Error(`Message not found: ${messageId}`);
       }
 
+      if (message.role !== 'user') {
+        throw new Error('Can only generate recommendations for user messages');
+      }
+
+      const partner = message.conversation.partner;
+      const userId = message.conversation.user_id;
+
       this.logger.log(
-        `[Telegram] Partner 조회 완료: ${partner.name} (${partner.id})`,
+        `[Telegram] 메시지 조회 완료: "${message.text}" from ${partner.name}`,
       );
 
       // 2. GptService를 통해 긍정/부정 답변 생성
       const gptResponse = await this.gptService.generateMultipleReplies(
-        this.defaultUserId,
+        userId,
         partner.id,
         message.text || '',
       );
@@ -303,24 +307,21 @@ export class TelegramService implements OnModuleInit {
       // 3. 3개 답변 구성: 긍정, 부정, Default
       const recommendations: Recommendation[] = [
         {
-          messageId: messageId.toString(),
+          messageId: messageId,
           text: gptResponse.positiveReply,
           tone: 'positive',
         },
         {
-          messageId: messageId.toString(),
+          messageId: messageId,
           text: gptResponse.negativeReply,
           tone: 'negative',
         },
         {
-          messageId: messageId.toString(),
+          messageId: messageId,
           text: '지금은 답장하기 힘드니, 최대한 빠르게 확인하겠습니다!',
           isDefault: true,
         },
       ];
-
-      // 메시지에 AI 추천 답변 저장 (하위 호환성 유지)
-      message.aiRecommendations = recommendations.map((r) => r.text);
 
       return recommendations;
     } catch (error) {
@@ -331,49 +332,78 @@ export class TelegramService implements OnModuleInit {
       // 에러 발생 시 폴백 답변 반환
       const fallbackRecommendations: Recommendation[] = [
         {
-          messageId: messageId.toString(),
+          messageId: messageId,
           text: '알겠습니다!',
           tone: 'positive',
         },
         {
-          messageId: messageId.toString(),
+          messageId: messageId,
           text: '죄송하지만 어렵습니다.',
           tone: 'negative',
         },
         {
-          messageId: messageId.toString(),
+          messageId: messageId,
           text: '지금은 답장하기 힘드니, 최대한 빠르게 확인하겠습니다!',
           isDefault: true,
         },
       ];
 
-      message.aiRecommendations = fallbackRecommendations.map((r) => r.text);
       return fallbackRecommendations;
     }
   }
 
-  // 사용자가 선택한 답변 전송
+  // 사용자가 선택한 답변 전송 (DB 기반)
   async sendSelectedReply(
-    messageId: number,
+    messageId: string,
     selectedReply: string,
   ): Promise<void> {
-    const message = this.getMessageById(messageId);
-    if (!message) {
-      throw new Error('Message not found');
-    }
+    this.logger.log(
+      `[Telegram] 답변 전송 시작 - messageId: ${messageId}, reply: "${selectedReply}"`,
+    );
 
     try {
-      await this.bot.telegram.sendMessage(message.chat.id, selectedReply);
+      // 1. DB에서 메시지 조회
+      const message = await this.prisma.message.findUnique({
+        where: { id: messageId },
+        include: {
+          conversation: {
+            include: {
+              partner: true,
+            },
+          },
+        },
+      });
 
-      // 답장 완료 표시
-      message.replied = true;
-      message.selectedReply = selectedReply;
+      if (!message) {
+        throw new Error(`Message not found: ${messageId}`);
+      }
+
+      const partner = message.conversation.partner;
+      const telegramChatId = partner.telegram_id;
+
+      if (!telegramChatId) {
+        throw new Error(`Partner ${partner.name} has no telegram_id`);
+      }
+
+      // 2. 텔레그램으로 메시지 전송
+      await this.bot.telegram.sendMessage(telegramChatId, selectedReply);
+
+      // 3. DB에 답변 저장 (assistant 역할)
+      await this.prisma.message.create({
+        data: {
+          conversation_id: message.conversation_id,
+          role: 'assistant',
+          text: selectedReply,
+        },
+      });
 
       this.logger.log(
-        `Reply sent to chat ${message.chat.id}: ${selectedReply}`,
+        `[Telegram] 답변 전송 완료 - ${partner.name}에게: "${selectedReply}"`,
       );
     } catch (error) {
-      this.logger.error(`Failed to send reply: ${error}`);
+      this.logger.error(
+        `[Telegram] 답변 전송 실패: ${error instanceof Error ? error.message : String(error)}`,
+      );
       throw error;
     }
   }

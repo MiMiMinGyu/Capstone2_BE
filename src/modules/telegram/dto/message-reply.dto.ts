@@ -1,24 +1,24 @@
-import { IsString, IsNumber } from 'class-validator';
+import { IsString, IsUUID } from 'class-validator';
 import { ApiProperty } from '@nestjs/swagger';
 
 // AI 추천 답변 생성 요청 DTO
 export class GenerateRecommendationsDto {
   @ApiProperty({
-    example: 1,
-    description: '메시지 ID',
+    example: 'd70e7086-5367-4656-88fb-e670f1a43479',
+    description: '메시지 ID (UUID)',
   })
-  @IsNumber()
-  messageId!: number;
+  @IsUUID()
+  messageId!: string;
 }
 
 // 사용자 선택 답변 전송 DTO
 export class SendReplyDto {
   @ApiProperty({
-    example: 1,
-    description: '메시지 ID',
+    example: 'd70e7086-5367-4656-88fb-e670f1a43479',
+    description: '메시지 ID (UUID)',
   })
-  @IsNumber()
-  messageId!: number;
+  @IsUUID()
+  messageId!: string;
 
   @ApiProperty({
     example: '그렇게 생각해! 나도 비슷하게 느꼈어',
