@@ -99,15 +99,15 @@ model StyleProfile {
 }
 
 model ToneSample {
-  id         String                     @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
-  user_id    String                     @db.Uuid
+  id         String                       @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  user_id    String                       @db.Uuid
   text       String
   category   RelationshipCategory?
   politeness PolitenessLevel?
   vibe       VibeType?
   embedding  Unsupported("vector(1536)")?
-  created_at DateTime?                  @default(now()) @db.Timestamp(6)
-  user       User                       @relation(fields: [user_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  created_at DateTime?                    @default(now()) @db.Timestamp(6)
+  user       User                         @relation(fields: [user_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
 
   @@index([category], map: "idx_tone_samples_category")
   @@index([user_id], map: "idx_tone_samples_user_id")
@@ -117,25 +117,25 @@ model ToneSample {
 }
 
 model KnowledgeChunk {
-  id         String                     @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
-  user_id    String                     @db.Uuid
-  source     String?                    @db.VarChar(255)
-  title      String?                    @db.VarChar(255)
+  id         String                       @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  user_id    String                       @db.Uuid
+  source     String?                      @db.VarChar(255)
+  title      String?                      @db.VarChar(255)
   chunk      String
-  metadata   Json?                      @default("{}")
+  metadata   Json?                        @default("{}")
   embedding  Unsupported("vector(1536)")?
-  created_at DateTime?                  @default(now()) @db.Timestamp(6)
-  user       User                       @relation(fields: [user_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  created_at DateTime?                    @default(now()) @db.Timestamp(6)
+  user       User                         @relation(fields: [user_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
 
   @@index([user_id], map: "idx_knowledge_chunks_user_id")
   @@map("knowledge_chunks")
 }
 
 model MessageEmbedding {
-  message_id String                    @id @db.Uuid
+  message_id String                      @id @db.Uuid
   embedding  Unsupported("vector(1536)")
-  created_at DateTime?                 @default(now()) @db.Timestamp(6)
-  message    Message                   @relation(fields: [message_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  created_at DateTime?                   @default(now()) @db.Timestamp(6)
+  message    Message                     @relation(fields: [message_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
 
   @@map("message_embeddings")
 }

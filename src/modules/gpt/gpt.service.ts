@@ -528,6 +528,13 @@ ${styleProfile.characteristics.length > 0 ? styleProfile.characteristics.join('\
       `[GPT] ✅ 컨텍스트 수집 완료 - 최근 메시지: ${recentContext.messages.length}개, 유사 예시: ${similarContext.examples.length}개, 사용자 지침: ${customGuidelines ? '있음' : '기본값'}`,
     );
 
+    // DEBUG: Log actual custom_guidelines content
+    if (customGuidelines) {
+      this.logger.debug(`[GPT DEBUG] 📋 사용자 정의 규칙 내용:\n${customGuidelines}`);
+    } else {
+      this.logger.warn(`[GPT DEBUG] ⚠️ custom_guidelines가 NULL입니다. 기본 제약사항을 사용합니다.`);
+    }
+
     // 3. 프롬프트 구성 (긍정/부정 답변 요청)
     this.logger.log(`[GPT] 3️⃣ GPT 프롬프트 구성 중 (긍정/부정 답변)...`);
     const messages = this.buildMultipleRepliesPrompt(
@@ -539,6 +546,10 @@ ${styleProfile.characteristics.length > 0 ? styleProfile.characteristics.join('\
       message,
       customGuidelines,
     );
+
+    // DEBUG: Log the complete prompt sent to GPT
+    this.logger.debug(`[GPT DEBUG] 📤 GPT로 전송되는 완전한 프롬프트:\n${JSON.stringify(messages, null, 2)}`);
+
     this.logger.log(
       `[GPT] ✅ 프롬프트 구성 완료 (메시지 ${messages.length}개)`,
     );
@@ -554,6 +565,9 @@ ${styleProfile.characteristics.length > 0 ? styleProfile.characteristics.join('\
 
     const reply = completion.content;
     this.logger.log(`[GPT] ✅ GPT 답변 생성 성공: "${reply}"`);
+
+    // DEBUG: Log raw GPT response
+    this.logger.debug(`[GPT DEBUG] 📥 GPT 원본 응답:\n${reply}`);
 
     // 5. 응답 파싱 (YES:/NO: 형식)
     const { positiveReply, negativeReply } = this.parseMultipleReplies(reply);

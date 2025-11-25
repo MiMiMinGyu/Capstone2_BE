@@ -8,11 +8,20 @@ import {
   Param,
   Query,
   UnauthorizedException,
+  UseGuards,
+  Request,
 } from '@nestjs/common';
-import { ApiTags, ApiOperation, ApiResponse, ApiQuery } from '@nestjs/swagger';
+import {
+  ApiTags,
+  ApiOperation,
+  ApiResponse,
+  ApiQuery,
+  ApiBearerAuth,
+} from '@nestjs/swagger';
 import { Observable } from 'rxjs';
 import { map } from 'rxjs/operators';
 import { JwtService } from '@nestjs/jwt';
+import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { TelegramService } from './telegram.service';
 import {
   SendMessageDto,
@@ -48,31 +57,38 @@ export class TelegramController {
 
   // 채팅 목록 조회 API (DB 기반)
   @Get('conversations')
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth()
   @ApiOperation({ summary: '대화 상대 목록 조회' })
   @ApiResponse({
     status: 200,
     description: '대화 상대 목록 (마지막 메시지 포함)',
   })
-  async getConversations() {
-    // TODO: JWT에서 userId 가져오기
-    const userId = '75f7f032-ae95-48d6-8779-31518ed83bf4';
+  async getConversations(
+    @Request() req: { user: { id: string; email: string } },
+  ) {
+    const userId = req.user.id;
+    console.log(`📞 [Conversations] JWT userId: ${userId} (${req.user.email})`);
     return this.tg.getConversations(userId);
   }
 
   // 대화 히스토리 조회 API
   @Get('conversations/:partnerId/messages')
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth()
   @ApiOperation({ summary: '특정 상대와의 대화 기록 조회' })
   @ApiResponse({
     status: 200,
     description: '대화 메시지 목록 (페이지네이션)',
   })
   async getConversationMessages(
+    @Request() req: { user: { id: string; email: string } },
     @Param('partnerId') partnerId: string,
     @Query('page') page?: string,
     @Query('limit') limit?: string,
   ) {
-    // TODO: JWT에서 userId 가져오기
-    const userId = '75f7f032-ae95-48d6-8779-31518ed83bf4';
+    const userId = req.user.id;
+    console.log(`📜 [Messages] JWT userId: ${userId}, partnerId: ${partnerId}`);
     const pageNum = parseInt(page || '1', 10);
     const limitNum = parseInt(limit || '50', 10);
 
@@ -86,6 +102,8 @@ export class TelegramController {
 
   // AI 추천 답변 생성 API
   @Post('recommendations')
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth()
   @ApiOperation({ summary: 'AI 추천 답변 생성 (긍정/부정/Default)' })
   @ApiResponse({
     status: 200,
@@ -149,8 +167,8 @@ export class TelegramController {
 
     let userId: string;
     try {
-      const payload = this.jwtService.verify<{ id: string }>(token);
-      userId = payload.id;
+      const payload = this.jwtService.verify<{ sub: string }>(token);
+      userId = payload.sub;
       console.log(`📡 SSE 연결 시작됨 - userId: ${userId}`);
     } catch (error) {
       const errorMessage =
