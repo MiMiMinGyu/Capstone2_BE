@@ -1,13 +1,13 @@
 import { Module } from '@nestjs/common';
 import { PrismaModule } from '../../prisma/prisma.module';
 import { OpenaiModule } from '../openai/openai.module';
-import { GptController } from './gpt.controller';
-import { GptService } from './gpt.service';
+import { LlmController } from './llm.controller';
+import { LlmService } from './llm.service';
 
 @Module({
   imports: [PrismaModule, OpenaiModule],
-  controllers: [GptController],
-  providers: [GptService],
-  exports: [GptService],
+  controllers: [LlmController],
+  providers: [LlmService],
+  exports: [LlmService],
 })
-export class GptModule {}
+export class LlmModule {}

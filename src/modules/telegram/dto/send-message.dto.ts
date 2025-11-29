@@ -1,4 +1,4 @@
-import { IsString, IsOptional } from 'class-validator';
+import { IsString, IsOptional, IsNotEmpty } from 'class-validator';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 
 // 텔레그램 메시지 전송을 위한 DTO (프론트엔드에서 사용)
@@ -8,6 +8,7 @@ export class SendMessageDto {
     example: 123456789,
     description: '텔레그램 채팅 ID',
   })
+  @IsNotEmpty()
   chatId!: number | string;
 
   // 전송할 메시지 텍스트 (필수 필드)

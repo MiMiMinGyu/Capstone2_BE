@@ -8,13 +8,13 @@ import {
   ReceiverInfo,
   SimilarContext,
   StyleProfile,
-} from './interfaces/gpt.interface';
+} from './interfaces/llm.interface';
 import { ChatMessage } from '../openai/interfaces/openai.interface';
 import { UpdateStyleProfileDto } from './dto';
 
 @Injectable()
-export class GptService {
-  private readonly logger = new Logger(GptService.name);
+export class LlmService {
+  private readonly logger = new Logger(LlmService.name);
 
   constructor(
     private readonly prisma: PrismaService,
@@ -221,7 +221,7 @@ export class GptService {
   }
 
   /**
-   * GPT 프롬프트 구성 (FastAPI 로직 포팅)
+   * LLM 프롬프트 구성 (FastAPI 로직 포팅)
    * @param userName 사용자 이름
    * @param styleProfile 말투 프로필
    * @param recentContext 최근 대화
@@ -298,7 +298,7 @@ ${styleProfile.characteristics.length > 0 ? styleProfile.characteristics.join('\
   }
 
   /**
-   * GPT 답변 생성 (메인 메서드)
+   * LLM 답변 생성 (메인 메서드)
    * @param userId 사용자 ID
    * @param partnerId 대화 상대 Partner ID
    * @param message 수신한 메시지
@@ -309,25 +309,25 @@ ${styleProfile.characteristics.length > 0 ? styleProfile.characteristics.join('\
     message: string,
   ): Promise<GenerateReplyResponse> {
     this.logger.log(
-      `[GPT] 📨 요청 수신 - userId: ${userId}, partnerId: ${partnerId}, message: "${message}"`,
+      `[LLM] 📨 요청 수신 - userId: ${userId}, partnerId: ${partnerId}, message: "${message}"`,
     );
 
     // 1. 사용자 정보 조회
-    this.logger.log(`[GPT] 1️⃣ 사용자 정보 조회 중...`);
+    this.logger.log(`[LLM] 1️⃣ 사용자 정보 조회 중...`);
     const user = await this.prisma.user.findUnique({
       where: { id: userId },
     });
 
     if (!user) {
-      this.logger.error(`[GPT] ❌ 사용자를 찾을 수 없음: ${userId}`);
+      this.logger.error(`[LLM] ❌ 사용자를 찾을 수 없음: ${userId}`);
       throw new NotFoundException(`User not found: ${userId}`);
     }
 
     const userName = user.name || 'User';
-    this.logger.log(`[GPT] ✅ 사용자 찾음: ${userName} (${user.email})`);
+    this.logger.log(`[LLM] ✅ 사용자 찾음: ${userName} (${user.email})`);
 
     // 2. 컨텍스트 수집 (병렬 처리) + 사용자 정의 지침 조회
-    this.logger.log(`[GPT] 2️⃣ 컨텍스트 수집 시작 (5개 병렬 쿼리)...`);
+    this.logger.log(`[LLM] 2️⃣ 컨텍스트 수집 시작 (5개 병렬 쿼리)...`);
     const [
       recentContext,
       similarContext,
@@ -351,11 +351,11 @@ ${styleProfile.characteristics.length > 0 ? styleProfile.characteristics.join('\
     const customGuidelines = userStyleProfile?.custom_guidelines || undefined;
 
     this.logger.log(
-      `[GPT] ✅ 컨텍스트 수집 완료 - 최근 메시지: ${recentContext.messages.length}개, 유사 예시: ${similarContext.examples.length}개, 사용자 지침: ${customGuidelines ? '있음' : '기본값'}`,
+      `[LLM] ✅ 컨텍스트 수집 완료 - 최근 메시지: ${recentContext.messages.length}개, 유사 예시: ${similarContext.examples.length}개, 사용자 지침: ${customGuidelines ? '있음' : '기본값'}`,
     );
 
     // 3. 프롬프트 구성
-    this.logger.log(`[GPT] 3️⃣ GPT 프롬프트 구성 중...`);
+    this.logger.log(`[LLM] 3️⃣ LLM 프롬프트 구성 중...`);
     const messages = this.buildPrompt(
       userName,
       styleProfile,
@@ -366,12 +366,12 @@ ${styleProfile.characteristics.length > 0 ? styleProfile.characteristics.join('\
       customGuidelines,
     );
     this.logger.log(
-      `[GPT] ✅ 프롬프트 구성 완료 (메시지 ${messages.length}개)`,
+      `[LLM] ✅ 프롬프트 구성 완료 (메시지 ${messages.length}개)`,
     );
 
-    // 4. GPT API 호출 (말투 재현성 개선을 위해 파라미터 조정)
+    // 4. LLM API 호출 (말투 재현성 개선을 위해 파라미터 조정)
     this.logger.log(
-      `[GPT] 4️⃣ OpenAI GPT API 호출 중... (temperature: 0.7, maxTokens: 100)`,
+      `[LLM] 4️⃣ OpenAI LLM API 호출 중... (temperature: 0.7, maxTokens: 100)`,
     );
     const completion = await this.openai.generateChatCompletion(messages, {
       temperature: 0.7, // 규칙 준수성 향상 (0.9 → 0.7)
@@ -380,7 +380,7 @@ ${styleProfile.characteristics.length > 0 ? styleProfile.characteristics.join('\
 
     const reply = completion.content;
 
-    this.logger.log(`[GPT] ✅ GPT 답변 생성 성공: "${reply}"`);
+    this.logger.log(`[LLM] ✅ LLM 답변 생성 성공: "${reply}"`);
 
     // 5. 응답 반환 (디버깅용 컨텍스트 포함)
     const response = {
@@ -393,7 +393,7 @@ ${styleProfile.characteristics.length > 0 ? styleProfile.characteristics.join('\
       },
     };
 
-    this.logger.log(`[GPT] 🎉 응답 반환 완료`);
+    this.logger.log(`[LLM] 🎉 응답 반환 완료`);
     return response;
   }
 
@@ -404,7 +404,7 @@ ${styleProfile.characteristics.length > 0 ? styleProfile.characteristics.join('\
    */
   async updateStyleProfile(userId: string, dto: UpdateStyleProfileDto) {
     this.logger.log(
-      `[GPT] 말투 설정 업데이트 - userId: ${userId}, guidelines: ${dto.customGuidelines ? '있음' : '없음'}`,
+      `[LLM] 말투 설정 업데이트 - userId: ${userId}, guidelines: ${dto.customGuidelines ? '있음' : '없음'}`,
     );
 
     // Upsert: 존재하면 업데이트, 없으면 생성
@@ -422,7 +422,7 @@ ${styleProfile.characteristics.length > 0 ? styleProfile.characteristics.join('\
       where: { user_id: userId },
     });
 
-    this.logger.log(`[GPT] ✅ 말투 설정 업데이트 완료`);
+    this.logger.log(`[LLM] ✅ 말투 설정 업데이트 완료`);
     return updated;
   }
 
@@ -431,14 +431,14 @@ ${styleProfile.characteristics.length > 0 ? styleProfile.characteristics.join('\
    * @param userId 사용자 ID
    */
   async getStyleProfileSettings(userId: string) {
-    this.logger.log(`[GPT] 말투 설정 조회 - userId: ${userId}`);
+    this.logger.log(`[LLM] 말투 설정 조회 - userId: ${userId}`);
 
     const styleProfile = await this.prisma.styleProfile.findUnique({
       where: { user_id: userId },
     });
 
     if (!styleProfile) {
-      this.logger.warn(`[GPT] ⚠️ 말투 설정 없음 - userId: ${userId}`);
+      this.logger.warn(`[LLM] ⚠️ 말투 설정 없음 - userId: ${userId}`);
       throw new NotFoundException('Style profile not found');
     }
 
@@ -450,14 +450,14 @@ ${styleProfile.characteristics.length > 0 ? styleProfile.characteristics.join('\
    * @param userId 사용자 ID
    */
   async deleteStyleProfile(userId: string) {
-    this.logger.log(`[GPT] 말투 설정 삭제 - userId: ${userId}`);
+    this.logger.log(`[LLM] 말투 설정 삭제 - userId: ${userId}`);
 
     const styleProfile = await this.prisma.styleProfile.findUnique({
       where: { user_id: userId },
     });
 
     if (!styleProfile) {
-      this.logger.warn(`[GPT] ⚠️ 삭제할 말투 설정 없음 - userId: ${userId}`);
+      this.logger.warn(`[LLM] ⚠️ 삭제할 말투 설정 없음 - userId: ${userId}`);
       throw new NotFoundException('Style profile not found');
     }
 
@@ -468,7 +468,7 @@ ${styleProfile.characteristics.length > 0 ? styleProfile.characteristics.join('\
       WHERE user_id = ${userId}::uuid
     `;
 
-    this.logger.log(`[GPT] ✅ 말투 설정 삭제 완료 (기본값으로 리셋)`);
+    this.logger.log(`[LLM] ✅ 말투 설정 삭제 완료 (기본값으로 리셋)`);
     return { message: 'Style profile deleted successfully' };
   }
 
@@ -484,25 +484,25 @@ ${styleProfile.characteristics.length > 0 ? styleProfile.characteristics.join('\
     message: string,
   ): Promise<GenerateMultipleRepliesResponse> {
     this.logger.log(
-      `[GPT] 📨 다중 답변 생성 요청 - userId: ${userId}, partnerId: ${partnerId}, message: "${message}"`,
+      `[LLM] 📨 다중 답변 생성 요청 - userId: ${userId}, partnerId: ${partnerId}, message: "${message}"`,
     );
 
     // 1. 사용자 정보 조회
-    this.logger.log(`[GPT] 1️⃣ 사용자 정보 조회 중...`);
+    this.logger.log(`[LLM] 1️⃣ 사용자 정보 조회 중...`);
     const user = await this.prisma.user.findUnique({
       where: { id: userId },
     });
 
     if (!user) {
-      this.logger.error(`[GPT] ❌ 사용자를 찾을 수 없음: ${userId}`);
+      this.logger.error(`[LLM] ❌ 사용자를 찾을 수 없음: ${userId}`);
       throw new NotFoundException(`User not found: ${userId}`);
     }
 
     const userName = user.name || 'User';
-    this.logger.log(`[GPT] ✅ 사용자 찾음: ${userName} (${user.email})`);
+    this.logger.log(`[LLM] ✅ 사용자 찾음: ${userName} (${user.email})`);
 
     // 2. 컨텍스트 수집 (병렬 처리) + 사용자 정의 지침 조회
-    this.logger.log(`[GPT] 2️⃣ 컨텍스트 수집 시작 (5개 병렬 쿼리)...`);
+    this.logger.log(`[LLM] 2️⃣ 컨텍스트 수집 시작 (5개 병렬 쿼리)...`);
     const [
       recentContext,
       similarContext,
@@ -525,18 +525,22 @@ ${styleProfile.characteristics.length > 0 ? styleProfile.characteristics.join('\
     const customGuidelines = userStyleProfile?.custom_guidelines || undefined;
 
     this.logger.log(
-      `[GPT] ✅ 컨텍스트 수집 완료 - 최근 메시지: ${recentContext.messages.length}개, 유사 예시: ${similarContext.examples.length}개, 사용자 지침: ${customGuidelines ? '있음' : '기본값'}`,
+      `[LLM] ✅ 컨텍스트 수집 완료 - 최근 메시지: ${recentContext.messages.length}개, 유사 예시: ${similarContext.examples.length}개, 사용자 지침: ${customGuidelines ? '있음' : '기본값'}`,
     );
 
     // DEBUG: Log actual custom_guidelines content
     if (customGuidelines) {
-      this.logger.debug(`[GPT DEBUG] 📋 사용자 정의 규칙 내용:\n${customGuidelines}`);
+      this.logger.debug(
+        `[LLM DEBUG] 📋 사용자 정의 규칙 내용:\n${customGuidelines}`,
+      );
     } else {
-      this.logger.warn(`[GPT DEBUG] ⚠️ custom_guidelines가 NULL입니다. 기본 제약사항을 사용합니다.`);
+      this.logger.warn(
+        `[LLM DEBUG] ⚠️ custom_guidelines가 NULL입니다. 기본 제약사항을 사용합니다.`,
+      );
     }
 
     // 3. 프롬프트 구성 (긍정/부정 답변 요청)
-    this.logger.log(`[GPT] 3️⃣ GPT 프롬프트 구성 중 (긍정/부정 답변)...`);
+    this.logger.log(`[LLM] 3️⃣ LLM 프롬프트 구성 중 (긍정/부정 답변)...`);
     const messages = this.buildMultipleRepliesPrompt(
       userName,
       styleProfile,
@@ -547,16 +551,18 @@ ${styleProfile.characteristics.length > 0 ? styleProfile.characteristics.join('\
       customGuidelines,
     );
 
-    // DEBUG: Log the complete prompt sent to GPT
-    this.logger.debug(`[GPT DEBUG] 📤 GPT로 전송되는 완전한 프롬프트:\n${JSON.stringify(messages, null, 2)}`);
-
-    this.logger.log(
-      `[GPT] ✅ 프롬프트 구성 완료 (메시지 ${messages.length}개)`,
+    // DEBUG: Log the complete prompt sent to LLM
+    this.logger.debug(
+      `[LLM DEBUG] 📤 LLM로 전송되는 완전한 프롬프트:\n${JSON.stringify(messages, null, 2)}`,
     );
 
-    // 4. GPT API 호출
     this.logger.log(
-      `[GPT] 4️⃣ OpenAI GPT API 호출 중... (temperature: 0.7, maxTokens: 150)`,
+      `[LLM] ✅ 프롬프트 구성 완료 (메시지 ${messages.length}개)`,
+    );
+
+    // 4. LLM API 호출
+    this.logger.log(
+      `[LLM] 4️⃣ OpenAI LLM API 호출 중... (temperature: 0.7, maxTokens: 150)`,
     );
     const completion = await this.openai.generateChatCompletion(messages, {
       temperature: 0.7,
@@ -564,16 +570,16 @@ ${styleProfile.characteristics.length > 0 ? styleProfile.characteristics.join('\
     });
 
     const reply = completion.content;
-    this.logger.log(`[GPT] ✅ GPT 답변 생성 성공: "${reply}"`);
+    this.logger.log(`[LLM] ✅ LLM 답변 생성 성공: "${reply}"`);
 
-    // DEBUG: Log raw GPT response
-    this.logger.debug(`[GPT DEBUG] 📥 GPT 원본 응답:\n${reply}`);
+    // DEBUG: Log raw LLM response
+    this.logger.debug(`[LLM DEBUG] 📥 LLM 원본 응답:\n${reply}`);
 
     // 5. 응답 파싱 (YES:/NO: 형식)
     const { positiveReply, negativeReply } = this.parseMultipleReplies(reply);
 
     this.logger.log(
-      `[GPT] ✅ 답변 파싱 완료 - 긍정: "${positiveReply}", 부정: "${negativeReply}"`,
+      `[LLM] ✅ 답변 파싱 완료 - 긍정: "${positiveReply}", 부정: "${negativeReply}"`,
     );
 
     // 6. 응답 반환
@@ -588,7 +594,7 @@ ${styleProfile.characteristics.length > 0 ? styleProfile.characteristics.join('\
       },
     };
 
-    this.logger.log(`[GPT] 🎉 다중 답변 반환 완료`);
+    this.logger.log(`[LLM] 🎉 다중 답변 반환 완료`);
     return response;
   }
 
@@ -669,14 +675,13 @@ NO: [부정 답변]`;
   }
 
   /**
-   * GPT 응답에서 긍정/부정 답변 파싱
+   * LLM 응답에서 긍정/부정 답변 파싱
    */
-  private parseMultipleReplies(gptResponse: string): {
+  private parseMultipleReplies(llmResponse: string): {
     positiveReply: string;
     negativeReply: string;
   } {
-    const lines = gptResponse.split('\n');
-
+    const lines = llmResponse.split('\n');
     // YES: 로 시작하는 라인 찾기
     const positiveLine = lines.find(
       (line) =>
@@ -689,20 +694,15 @@ NO: [부정 답변]`;
     );
 
     let positiveReply =
-      positiveLine
-        ?.replace(/^(YES:|긍정:)/i, '')
-        .trim() || '알겠습니다!';
+      positiveLine?.replace(/^(YES:|긍정:)/i, '').trim() || '알겠습니다!';
     let negativeReply =
-      negativeLine
-        ?.replace(/^(NO:|부정:)/i, '')
-        .trim() || '죄송하지만 어렵습니다.';
+      negativeLine?.replace(/^(NO:|부정:)/i, '').trim() ||
+      '죄송하지만 어렵습니다.';
 
     // 파싱 실패 시 폴백: 전체 응답을 줄바꿈으로 분리
     if (!positiveLine || !negativeLine) {
-      this.logger.warn(
-        `[GPT] ⚠️ 파싱 실패, 폴백 사용. 원본: "${gptResponse}"`,
-      );
-      const fallbackLines = gptResponse.split('\n').filter((l) => l.trim());
+      this.logger.warn(`[LLM] ⚠️ 파싱 실패, 폴백 사용. 원본: "${llmResponse}"`);
+      const fallbackLines = llmResponse.split('\n').filter((l) => l.trim());
       positiveReply = fallbackLines[0]?.trim() || '알겠습니다!';
       negativeReply = fallbackLines[1]?.trim() || '죄송하지만 어렵습니다.';
     }

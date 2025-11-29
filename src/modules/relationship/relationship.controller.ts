@@ -188,7 +188,7 @@ export class RelationshipController {
   @ApiOperation({
     summary: '관계 삭제',
     description:
-      '관계를 삭제합니다. GPT 답변 생성 시 기본 설정으로 돌아갑니다.',
+      '관계를 삭제합니다. LLM 답변 생성 시 기본 설정으로 돌아갑니다.',
   })
   @ApiParam({
     name: 'id',

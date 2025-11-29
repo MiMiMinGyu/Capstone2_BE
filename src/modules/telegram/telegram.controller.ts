@@ -40,11 +40,21 @@ export class TelegramController {
 
   // 프론트엔드에서 호출하는 메시지 전송 API
   @Post('send')
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth()
   @ApiOperation({ summary: '텔레그램 메시지 전송' })
   @ApiResponse({ status: 200, description: '메시지 전송 성공' })
   @ApiResponse({ status: 400, description: '잘못된 요청' })
-  async send(@Body() body: SendMessageDto) {
-    return this.tg.sendMessage(body.chatId, body.text);
+  async send(
+    @Body() body: SendMessageDto,
+    @Request() req: { user: { id: string; email: string } },
+  ) {
+    const userId = req.user.id;
+    console.log(
+      `📤 [Send] userId: ${userId}, chatId: ${body.chatId}, text: "${body.text}"`,
+    );
+    await this.tg.sendMessageAndSave(userId, body.chatId, body.text);
+    return { success: true, message: 'Message sent and saved successfully' };
   }
 
   // 받은 메시지 목록 조회 API (인메모리)
@@ -123,6 +133,9 @@ export class TelegramController {
   @ApiResponse({ status: 200, description: '답변 전송 성공' })
   @ApiResponse({ status: 404, description: '메시지를 찾을 수 없음' })
   async sendReply(@Body() dto: SendReplyDto) {
+    console.log(
+      `💬 [Reply] messageId: ${dto.messageId}, text: "${dto.selectedReply}"`,
+    );
     await this.tg.sendSelectedReply(dto.messageId, dto.selectedReply);
     return { success: true, message: 'Reply sent successfully' };
   }

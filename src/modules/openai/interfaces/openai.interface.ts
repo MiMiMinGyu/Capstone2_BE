@@ -15,7 +15,7 @@ export interface EmbeddingResponse {
 }
 
 /**
- * OpenAI GPT 응답 인터페이스
+ * OpenAI LLM 응답 인터페이스
  */
 export interface ChatCompletionResponse {
   content: string;

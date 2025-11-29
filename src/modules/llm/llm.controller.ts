@@ -15,22 +15,22 @@ import {
 } from '@nestjs/swagger';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { GenerateReplyDto, UpdateStyleProfileDto } from './dto';
-import { GptService } from './gpt.service';
-import { GenerateReplyResponse } from './interfaces/gpt.interface';
+import { LlmService } from './llm.service';
+import { GenerateReplyResponse } from './interfaces/llm.interface';
 import { Request } from 'express';
 
-@ApiTags('GPT')
+@ApiTags('LLM')
 @ApiBearerAuth('access-token')
-@Controller('gpt')
+@Controller('llm')
 @UseGuards(JwtAuthGuard)
-export class GptController {
-  constructor(private readonly gptService: GptService) {}
+export class LlmController {
+  constructor(private readonly llmService: LlmService) {}
 
   @Post('generate')
   @ApiOperation({
-    summary: 'GPT 답변 생성',
+    summary: 'LLM 답변 생성',
     description:
-      '사용자의 말투를 모방하여 GPT 기반 답변을 생성합니다. 벡터 유사도 검색으로 말투 예시를 찾고, 최근 대화 맥락과 관계 정보를 활용합니다.',
+      '사용자의 말투를 모방하여 LLM 기반 답변을 생성합니다. 벡터 유사도 검색으로 말투 예시를 찾고, 최근 대화 맥락과 관계 정보를 활용합니다.',
   })
   @ApiResponse({
     status: 200,
@@ -56,7 +56,7 @@ export class GptController {
   async generateReply(
     @Body() dto: GenerateReplyDto,
   ): Promise<GenerateReplyResponse> {
-    return this.gptService.generateReply(
+    return this.llmService.generateReply(
       dto.userId,
       dto.partnerId,
       dto.message,
@@ -67,7 +67,7 @@ export class GptController {
   @ApiOperation({
     summary: '말투 설정 저장/업데이트',
     description:
-      '사용자 정의 말투 지침을 저장합니다. GPT 답변 생성 시 우선적으로 참고됩니다.',
+      '사용자 정의 말투 지침을 저장합니다. LLM 답변 생성 시 우선적으로 참고됩니다.',
   })
   @ApiResponse({
     status: 200,
@@ -87,7 +87,7 @@ export class GptController {
     @Req() req: Request & { user: { id: string } },
     @Body() dto: UpdateStyleProfileDto,
   ) {
-    return this.gptService.updateStyleProfile(req.user.id, dto);
+    return this.llmService.updateStyleProfile(req.user.id, dto);
   }
 
   @Get('style-profile')
@@ -110,7 +110,7 @@ export class GptController {
   })
   @ApiResponse({ status: 404, description: '말투 설정을 찾을 수 없음' })
   async getStyleProfile(@Req() req: Request & { user: { id: string } }) {
-    return this.gptService.getStyleProfileSettings(req.user.id);
+    return this.llmService.getStyleProfileSettings(req.user.id);
   }
 
   @Delete('style-profile')
@@ -129,6 +129,6 @@ export class GptController {
   })
   @ApiResponse({ status: 404, description: '말투 설정을 찾을 수 없음' })
   async deleteStyleProfile(@Req() req: Request & { user: { id: string } }) {
-    return this.gptService.deleteStyleProfile(req.user.id);
+    return this.llmService.deleteStyleProfile(req.user.id);
   }
 }

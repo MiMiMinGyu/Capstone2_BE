@@ -10,7 +10,7 @@ import {
 import { Subject, Observable } from 'rxjs';
 import { filter } from 'rxjs/operators';
 import { PrismaService } from '../../prisma/prisma.service';
-import { GptService } from '../gpt/gpt.service';
+import { LlmService } from '../llm/llm.service';
 
 @Injectable()
 export class TelegramService implements OnModuleInit {
@@ -30,7 +30,7 @@ export class TelegramService implements OnModuleInit {
   constructor(
     private readonly config: ConfigService,
     private readonly prisma: PrismaService,
-    private readonly gptService: GptService,
+    private readonly llmService: LlmService,
   ) {
     this.defaultUserId = this.config.get<string>('DEFAULT_USER_ID') || '';
     if (!this.defaultUserId) {
@@ -85,13 +85,74 @@ export class TelegramService implements OnModuleInit {
     process.once('SIGTERM', () => this.bot.stop('SIGTERM'));
   }
 
-  // 프론트엔드에서 호출하는 메시지 전송 API
+  // 프론트엔드에서 호출하는 메시지 전송 API (레거시 - DB 저장 안 함)
   async sendMessage(chatId: number | string, text: string) {
     try {
       await this.bot.telegram.sendMessage(chatId, text);
       this.logger.log(`Message sent to chat ${chatId}`);
     } catch (error) {
       this.logger.error(`Failed to send message: ${error}`);
+      throw error;
+    }
+  }
+
+  // 메시지 전송 + DB 저장 (프론트엔드 대화 내역에 반영)
+  async sendMessageAndSave(
+    userId: string,
+    telegramId: number | string,
+    text: string,
+  ): Promise<void> {
+    this.logger.log(
+      `[Telegram] 메시지 전송 및 저장 시작 - userId: ${userId}, telegramId: ${telegramId}, text: "${text}"`,
+    );
+
+    try {
+      // 1. telegram_id로 Partner 조회
+      const partner = await this.prisma.partner.findUnique({
+        where: { telegram_id: String(telegramId) },
+      });
+
+      if (!partner) {
+        throw new Error(
+          `Partner not found with telegram_id: ${telegramId}. 먼저 상대방이 메시지를 보내야 합니다.`,
+        );
+      }
+
+      // 2. Conversation 조회 또는 생성
+      const conversation = await this.prisma.conversation.upsert({
+        where: {
+          user_id_partner_id: {
+            user_id: userId,
+            partner_id: partner.id,
+          },
+        },
+        create: {
+          user_id: userId,
+          partner_id: partner.id,
+        },
+        update: {},
+      });
+
+      // 3. 텔레그램으로 메시지 전송
+      await this.bot.telegram.sendMessage(telegramId, text);
+      this.logger.log(`[Telegram] 텔레그램 전송 완료 - ${partner.name}`);
+
+      // 4. DB에 메시지 저장 (assistant 역할)
+      await this.prisma.message.create({
+        data: {
+          conversation_id: conversation.id,
+          role: 'assistant',
+          text: text,
+        },
+      });
+
+      this.logger.log(
+        `[Telegram] DB 저장 완료 - ${partner.name}에게: "${text}"`,
+      );
+    } catch (error) {
+      this.logger.error(
+        `[Telegram] 메시지 전송/저장 실패: ${error instanceof Error ? error.message : String(error)}`,
+      );
       throw error;
     }
   }
@@ -259,11 +320,11 @@ export class TelegramService implements OnModuleInit {
     return this.receivedMessages.find((msg) => msg.id === id);
   }
 
-  // GPT 기반 답변 생성 (DB 기반)
+  // LLM 기반 답변 생성 (DB 기반)
   async generateAIRecommendations(
     messageId: string,
   ): Promise<Recommendation[]> {
-    this.logger.log(`[Telegram] GPT 답변 생성 시작 - messageId: ${messageId}`);
+    this.logger.log(`[Telegram] LLM 답변 생성 시작 - messageId: ${messageId}`);
 
     try {
       // 1. DB에서 메시지 조회
@@ -293,27 +354,27 @@ export class TelegramService implements OnModuleInit {
         `[Telegram] 메시지 조회 완료: "${message.text}" from ${partner.name}`,
       );
 
-      // 2. GptService를 통해 긍정/부정 답변 생성
-      const gptResponse = await this.gptService.generateMultipleReplies(
+      // 2. LlmService를 통해 긍정/부정 답변 생성
+      const llmResponse = await this.llmService.generateMultipleReplies(
         userId,
         partner.id,
         message.text || '',
       );
 
       this.logger.log(
-        `[Telegram] GPT 답변 생성 완료 - 긍정: "${gptResponse.positiveReply}", 부정: "${gptResponse.negativeReply}"`,
+        `[Telegram] LLM 답변 생성 완료 - 긍정: "${llmResponse.positiveReply}", 부정: "${llmResponse.negativeReply}"`,
       );
 
       // 3. 3개 답변 구성: 긍정, 부정, Default
       const recommendations: Recommendation[] = [
         {
           messageId: messageId,
-          text: gptResponse.positiveReply,
+          text: llmResponse.positiveReply,
           tone: 'positive',
         },
         {
           messageId: messageId,
-          text: gptResponse.negativeReply,
+          text: llmResponse.negativeReply,
           tone: 'negative',
         },
         {
@@ -326,7 +387,7 @@ export class TelegramService implements OnModuleInit {
       return recommendations;
     } catch (error) {
       this.logger.error(
-        `[Telegram] GPT 답변 생성 실패: ${error instanceof Error ? error.message : String(error)}`,
+        `[Telegram] LLM 답변 생성 실패: ${error instanceof Error ? error.message : String(error)}`,
       );
 
       // 에러 발생 시 폴백 답변 반환

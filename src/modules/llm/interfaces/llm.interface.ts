@@ -1,5 +1,5 @@
 /**
- * GPT 답변 생성 요청 파라미터
+ * LLM 답변 생성 요청 파라미터
  */
 export interface GenerateReplyRequest {
   userId: string; // 사용자 ID
@@ -8,7 +8,7 @@ export interface GenerateReplyRequest {
 }
 
 /**
- * GPT 답변 생성 응답
+ * LLM 답변 생성 응답
  */
 export interface GenerateReplyResponse {
   reply: string; // 생성된 답변

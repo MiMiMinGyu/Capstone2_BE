@@ -7,7 +7,7 @@ import { PrismaModule } from './prisma/prisma.module';
 import { AuthModule } from './modules/auth/auth.module';
 import { KakaoModule } from './modules/kakao/kakao.module';
 import { OpenaiModule } from './modules/openai/openai.module';
-import { GptModule } from './modules/gpt/gpt.module';
+import { LlmModule } from './modules/llm/llm.module';
 import { RelationshipModule } from './modules/relationship/relationship.module';
 
 @Module({
@@ -20,7 +20,7 @@ import { RelationshipModule } from './modules/relationship/relationship.module';
     AuthModule,
     KakaoModule,
     OpenaiModule,
-    GptModule,
+    LlmModule,
     RelationshipModule,
     TelegramModule,
   ],

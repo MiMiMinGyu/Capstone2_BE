@@ -73,10 +73,10 @@ export class OpenaiService {
   }
 
   /**
-   * GPT 모델로 채팅 완성 생성
+   * LLM 모델로 채팅 완성 생성
    * @param messages 대화 메시지 배열
    * @param options 옵션 (temperature, max_tokens 등)
-   * @returns GPT 응답 텍스트와 토큰 사용량
+   * @returns LLM 응답 텍스트와 토큰 사용량
    */
   async generateChatCompletion(
     messages: ChatMessage[],
