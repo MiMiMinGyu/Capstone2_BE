@@ -8,10 +8,21 @@ export interface GenerateReplyRequest {
 }
 
 /**
+ * 유사도 측정 결과
+ */
+export interface SimilarityMetrics {
+  average: number; // 평균 유사도 (0-100)
+  max: number; // 최고 유사도 (0-100)
+  min: number; // 최저 유사도 (0-100)
+  distribution: Record<string, number>; // 유사도 분포
+}
+
+/**
  * LLM 답변 생성 응답
  */
 export interface GenerateReplyResponse {
   reply: string; // 생성된 답변
+  similarity?: SimilarityMetrics; // 생성된 답변의 유사도
   context?: {
     recentMessages?: string[]; // 최근 대화 맥락
     similarExamples?: string[]; // 유사한 말투 예시
@@ -26,6 +37,8 @@ export interface GenerateReplyResponse {
 export interface GenerateMultipleRepliesResponse {
   positiveReply: string; // 긍정적인 답변 (동의/수락)
   negativeReply: string; // 부정적인 답변 (거절/불가)
+  positiveSimilarity?: SimilarityMetrics; // 긍정 답변 유사도
+  negativeSimilarity?: SimilarityMetrics; // 부정 답변 유사도
   context?: {
     recentMessages?: string[]; // 최근 대화 맥락
     similarExamples?: string[]; // 유사한 말투 예시
@@ -52,6 +65,7 @@ export interface SimilarContext {
   examples: Array<{
     text: string;
     similarity: number; // 코사인 유사도 (0-1)
+    previous_message?: string | null; // 대화 쌍: 상대방의 이전 메시지
   }>;
 }
 
@@ -70,5 +84,7 @@ export interface StyleProfile {
 export interface ReceiverInfo {
   name: string;
   category: string; // 관계 카테고리
+  politeness?: string; // 존댓말 수준 (FORMAL, POLITE, CASUAL)
+  vibe?: string; // 말투 분위기 (CALM, DIRECT, PLAYFUL, CARING)
   relationshipDescription?: string;
 }

@@ -2,6 +2,7 @@ import {
   Controller,
   Post,
   Get,
+  Patch,
   Body,
   UseGuards,
   Request,
@@ -15,7 +16,7 @@ import {
   ApiBearerAuth,
 } from '@nestjs/swagger';
 import { AuthService } from './auth.service';
-import { RegisterDto, LoginDto, RefreshDto } from './dto';
+import { RegisterDto, LoginDto, RefreshDto, UpdateProfileDto, ChangePasswordDto } from './dto';
 import { JwtAuthGuard } from './guards/jwt-auth.guard';
 import { JwtUser, AuthResponse } from './interfaces';
 
@@ -151,5 +152,83 @@ export class AuthController {
     @Request() req: { user: JwtUser },
   ): Promise<{ message: string }> {
     return this.authService.logout(req.user.id);
+  }
+
+  @Get('stats')
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth('access-token')
+  @ApiOperation({
+    summary: '내 대화 통계 조회',
+    description: '사용자의 업로드한 대화, 메시지, 톤샘플, 관계 통계를 조회합니다.',
+  })
+  @ApiResponse({
+    status: 200,
+    description: '통계 조회 성공',
+    schema: {
+      example: {
+        conversations: 3,
+        totalMessages: 1247,
+        myMessages: 623,
+        toneSamples: 523,
+        relationships: 5,
+      },
+    },
+  })
+  @ApiResponse({ status: 401, description: '인증되지 않음' })
+  async getStats(@Request() req: { user: JwtUser }) {
+    return this.authService.getUserStats(req.user.id);
+  }
+
+  @Patch('profile')
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth('access-token')
+  @ApiOperation({
+    summary: '프로필 수정',
+    description: '사용자의 프로필 정보(이름)를 수정합니다.',
+  })
+  @ApiResponse({
+    status: 200,
+    description: '프로필 수정 성공',
+    schema: {
+      example: {
+        id: 'uuid',
+        username: 'mingyu123',
+        name: '새이름',
+        email: 'mingyu@test.com',
+        created_at: '2025-01-06T12:00:00Z',
+      },
+    },
+  })
+  @ApiResponse({ status: 401, description: '인증되지 않음' })
+  async updateProfile(
+    @Request() req: { user: JwtUser },
+    @Body() updateProfileDto: UpdateProfileDto,
+  ) {
+    return this.authService.updateProfile(req.user.id, updateProfileDto);
+  }
+
+  @Patch('password')
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth('access-token')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: '비밀번호 변경',
+    description: '현재 비밀번호를 확인하고 새 비밀번호로 변경합니다.',
+  })
+  @ApiResponse({
+    status: 200,
+    description: '비밀번호 변경 성공',
+    schema: {
+      example: {
+        message: 'Password changed successfully',
+      },
+    },
+  })
+  @ApiResponse({ status: 401, description: '현재 비밀번호가 틀림 또는 인증되지 않음' })
+  async changePassword(
+    @Request() req: { user: JwtUser },
+    @Body() changePasswordDto: ChangePasswordDto,
+  ): Promise<{ message: string }> {
+    return this.authService.changePassword(req.user.id, changePasswordDto);
   }
 }
